@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lms-ptik-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lms_ptik
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - lms_ptik_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lms_ptik"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  lms_ptik_pgdata:
