@@ -1,6 +1,6 @@
 # Laporan Verifikasi Sprint 0
 
-**Status: CONDITIONAL — belum layak produksi.** Build API, test Vitest, dan typecheck seluruh workspace lulus. PostgreSQL Docker dapat dijangkau di `localhost:5432`; `prisma migrate deploy` mendeteksi satu migrasi dan melaporkan tidak ada migrasi tertunda. Endpoint API telah terverifikasi: `/health` mengembalikan HTTP 200 (`ok`) dan `/ready` HTTP 200 (`ready`, database `ok`). `prisma generate` masih gagal dengan `EPERM` saat mengganti `query_engine-windows.dll.node`; API yang sedang berjalan pada port 4000 mungkin memegang file engine, tetapi kepemilikan proses belum dapat dibaca dari sesi ini. Audit registry juga belum berhasil.
+**Status: CONDITIONAL — belum layak produksi.** Build API, test Vitest, dan typecheck seluruh workspace lulus. PostgreSQL Docker dapat dijangkau di `localhost:5432`; `prisma migrate deploy` mendeteksi satu migrasi dan melaporkan tidak ada migrasi tertunda. Endpoint API telah terverifikasi: `/health` mengembalikan HTTP 200 (`ok`) dan `/ready` HTTP 200 (`ready`, database `ok`). Pengguna kemudian berhasil menjalankan `prisma generate` dan menghasilkan Prisma Client v6.19.3 setelah proses API dihentikan. Audit registry masih belum berhasil, sehingga status advisory dependency belum dapat ditutup.
 
 ## Perubahan fondasi
 
@@ -12,7 +12,7 @@
 
 ## Pemeriksaan tersisa
 
-Laporan awal mencatat instalasi/registry gagal (`EAI_AGAIN`). Pada verifikasi lanjutan, `npm ping` gagal dengan `EACCES`. Build API, test API (1 file, 1 test), dan typecheck workspace lulus. Port PostgreSQL `localhost:5432` dapat dijangkau dan `prisma migrate deploy` menyatakan tidak ada migrasi tertunda. GET `/health` dan `/ready` masing-masing mengembalikan HTTP 200; readiness melaporkan database `ok`. `prisma generate` gagal mengganti binary engine (`EPERM`). Ketika pengguna menjalankan `npm run dev`, server sudah memakai port 4000 (`EADDRINUSE`), konsisten dengan server yang sudah berjalan; lakukan generate setelah menghentikan proses API agar file engine tidak sedang digunakan. Audit dependency terbaru masih perlu diverifikasi ketika registry dapat diakses. Selesaikan generate dan audit sebelum menyatakan Sprint 0 PASS.
+Laporan awal mencatat instalasi/registry gagal (`EAI_AGAIN`). Pada verifikasi lanjutan, `npm ping` gagal dengan `EACCES`. Build API, test API (1 file, 1 test), dan typecheck workspace lulus. Port PostgreSQL `localhost:5432` dapat dijangkau dan `prisma migrate deploy` menyatakan tidak ada migrasi tertunda. GET `/health` dan `/ready` masing-masing mengembalikan HTTP 200; readiness melaporkan database `ok`. `prisma generate` kemudian berhasil setelah proses API dihentikan dan menghasilkan Prisma Client v6.19.3. Audit dependency terbaru masih perlu diverifikasi ketika registry dapat diakses; tutup pemeriksaan ini sebelum menyatakan Sprint 0 PASS.
 
 ## Risiko residual dan batas cakupan
 
