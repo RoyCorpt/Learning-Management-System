@@ -1,6 +1,6 @@
 # Laporan Verifikasi Sprint 0
 
-**Status: CONDITIONAL — belum layak produksi.** Pada verifikasi lanjutan di Windows, build API dan test Vitest lulus. Test memerlukan izin menulis direktori sementara `.vite-temp` di `apps/api/node_modules`; percobaan awal diblokir (`EPERM`), lalu berhasil dengan izin yang sesuai. Docker CLI tidak tersedia di lingkungan ini. Typecheck, registry audit, migrasi PostgreSQL, dan pemeriksaan endpoint belum dapat disahkan.
+**Status: CONDITIONAL — belum layak produksi.** Build API, test Vitest, dan typecheck seluruh workspace lulus. PostgreSQL Docker kini dapat dijangkau di `localhost:5432`; `prisma migrate deploy` mendeteksi satu migrasi dan melaporkan tidak ada migrasi tertunda. Pembuatan Prisma Client gagal karena `EPERM` saat mengganti `query_engine-windows.dll.node`. Pemeriksaan endpoint belum berjalan karena proses API di lingkungan verifikasi gagal di `uv_os_get_passwd` sebelum startup. Audit registry juga belum berhasil.
 
 ## Perubahan fondasi
 
@@ -12,7 +12,7 @@
 
 ## Pemeriksaan tersisa
 
-Laporan awal mencatat instalasi/registry gagal (`EAI_AGAIN`). Pada verifikasi lanjutan, `npm ping` gagal dengan `EACCES`, sedangkan Docker CLI tidak ditemukan. Build API berhasil dan test API lulus (1 file, 1 test) setelah izin direktori sementara diberikan. Typecheck, validasi/migrasi PostgreSQL, serta endpoint `/health` dan `/ready` belum disahkan. Jalankan rangkaian tersebut setelah akses registry dan PostgreSQL tersedia sebelum menyatakan Sprint 0 PASS.
+Laporan awal mencatat instalasi/registry gagal (`EAI_AGAIN`). Pada verifikasi lanjutan, `npm ping` gagal dengan `EACCES`. Build API, test API (1 file, 1 test), dan typecheck workspace lulus. Port PostgreSQL `localhost:5432` dapat dijangkau dan `prisma migrate deploy` menyatakan tidak ada migrasi tertunda. `prisma generate` gagal mengganti binary engine (`EPERM`); API tidak dapat dijalankan dari lingkungan ini karena Node gagal membaca info user OS (`uv_os_get_passwd`, `ENOMEM`), sehingga `/health` dan `/ready` belum disahkan. Selesaikan kedua kendala lingkungan tersebut sebelum menyatakan Sprint 0 PASS.
 
 ## Risiko residual dan batas cakupan
 
