@@ -1,32 +1,30 @@
 # Laporan Verifikasi Sprint 0
 
-**Status: CONDITIONAL — belum layak produksi.** Build API, test Vitest, dan typecheck seluruh workspace lulus. PostgreSQL Docker dapat dijangkau di `localhost:5432`; `prisma migrate deploy` mendeteksi satu migrasi dan melaporkan tidak ada migrasi tertunda. Endpoint API telah terverifikasi: `/health` mengembalikan HTTP 200 (`ok`) dan `/ready` HTTP 200 (`ready`, database `ok`). Pengguna kemudian berhasil menjalankan `prisma generate` dan menghasilkan Prisma Client v6.19.3 setelah proses API dihentikan. Audit registry masih belum berhasil, sehingga status advisory dependency belum dapat ditutup.
+**Status: PASS untuk cakupan fondasi Sprint 0.** Ini bukan persetujuan produksi untuk LMS lengkap. Build, typecheck, test, audit dependency, generate Prisma, migrasi, serta health/readiness telah terverifikasi.
 
-## Perubahan fondasi
+## Penyelesaian dan bukti
 
-- Override `deepmerge-ts@^8` dihapus. Prisma `6.19.3` mendeklarasikan dependency langsung `deepmerge-ts@7.1.5`; memaksa major 8 melanggar dependency yang dinyatakan Prisma dan membuat `npm ls` menandai tree invalid. Gunakan pasangan versi yang dipatok Prisma sampai rilis Prisma yang kompatibel tersedia.
-- Snapshot audit yang tersedia melaporkan advisory high pada `deepmerge-ts` melalui `@prisma/config` 6.19.3. Pemeriksaan `npm audit` saat finalisasi tidak dapat menghubungi endpoint registry, sehingga status advisory saat ini belum dapat dipastikan atau diselesaikan dengan upgrade aman. Ini adalah **blocker pra-produksi**: cek advisory terbaru dan upgrade Prisma dalam rentang kompatibel sebelum deployment; jangan override major secara paksa.
-- Vitest hanya memasukkan `src/**/*.test.ts` dan `src/**/*.spec.ts`, serta mengecualikan `dist` dan `node_modules`.
-- Build API mengecualikan file test dan spec agar tidak masuk ke `dist` produksi.
-- `.gitignore` mengabaikan `.env`, semua `node_modules`, `dist`, log, dan `audit-report.json`, sambil tetap mengizinkan `.env.example`.
-
-## Pemeriksaan tersisa
-
-Laporan awal mencatat instalasi/registry gagal (`EAI_AGAIN`). Pada verifikasi lanjutan, `npm ping` gagal dengan `EACCES`. Build API, test API (1 file, 1 test), dan typecheck workspace lulus. Port PostgreSQL `localhost:5432` dapat dijangkau dan `prisma migrate deploy` menyatakan tidak ada migrasi tertunda. GET `/health` dan `/ready` masing-masing mengembalikan HTTP 200; readiness melaporkan database `ok`. `prisma generate` kemudian berhasil setelah proses API dihentikan dan menghasilkan Prisma Client v6.19.3. Audit dependency terbaru masih perlu diverifikasi ketika registry dapat diakses; tutup pemeriksaan ini sebelum menyatakan Sprint 0 PASS.
+- `deepmerge-ts` dioverride ke `^8.0.2`, sedangkan `prisma` dan `@prisma/client` tetap `6.19.3`. Prisma 6.19.3 memakai export `deepmerge` dari dependency ini. Validasi kompatibilitas pada proyek: `npm ls prisma @prisma/config deepmerge-ts` menunjukkan versi tersebut terpasang; `prisma generate`, `prisma migrate deploy`, build, typecheck, dan test lulus. `npm audit` melaporkan **0 vulnerabilities**.
+- `npm audit fix --dry-run` akan menurunkan Prisma 6.19.3 ke 6.12.0. Opsi itu tidak dipilih; override terarah menyelesaikan advisory tanpa downgrade Prisma.
+- Vitest hanya mencari `src/**/*.test.ts` dan `src/**/*.spec.ts`, mengecualikan `dist` dan `node_modules`. TypeScript API mengecualikan test/spec sehingga file test tidak masuk ke artefak build.
+- `npm run build` lulus untuk shared, API, dan web. `npm run typecheck` lulus untuk semua workspace. `npm test` lulus (1 file, 1 test).
+- PostgreSQL Docker dapat dijangkau di `localhost:5432`; `prisma migrate deploy` melaporkan tidak ada migrasi tertunda. Prisma Client v6.19.3 berhasil digenerate.
+- `/health` dan `/ready` telah diuji: keduanya HTTP 200; readiness menunjukkan database `ok`.
+- `.gitignore` mengabaikan `.env`, `node_modules`, `dist`, audit report, diagnostic logs, dan `*.tsbuildinfo`; `.env.example` tetap dilacak.
 
 ## Risiko residual dan batas cakupan
 
-- Advisory transitive Prisma di atas belum tertutup; dependency install lokal bukan bukti bahwa registry audit terbaru lulus.
-- Database migration dan perilaku runtime belum diuji pada PostgreSQL.
-- Item CR-01 sampai CR-09 tetap OPEN di `OPEN-DECISIONS.md`; jangan implementasikan fitur yang bergantung pada keputusan tersebut.
-- Fitur yang belum dibangun: autentikasi/registrasi dan pemulihan akun, peran dan otorisasi, kelas/keanggotaan, materi, tugas dan pengumpulan, penilaian, notifikasi, unggah berkas, roster resmi/sinkronisasi, rate limiting dan alur CSRF, backup automation, serta deployment produksi.
+- CR-01 sampai CR-09 tetap OPEN di `OPEN-DECISIONS.md`; fitur yang bergantung pada keputusan itu belum boleh dianggap disetujui.
+- LMS bisnis belum dibangun: autentikasi/registrasi dan pemulihan akun, peran/otorisasi, kelas/keanggotaan, materi, tugas/pengumpulan, penilaian, notifikasi, unggah berkas, serta roster resmi/sinkronisasi.
+- Rate limiting, alur CSRF, backup automation, deployment produksi, dan hardening operasional belum termasuk fondasi ini.
+- Hasil audit berlaku pada dependency tree/lockfile yang diverifikasi saat laporan ini dibuat; ulangi audit saat dependency berubah dan sebelum deployment.
 
 ## Langkah Sprint 1
 
-1. Selesaikan keputusan CR yang menghalangi alur identitas dan akademik, lalu perbarui kebutuhan, diagram, backlog, dan kriteria penerimaan.
-2. Verifikasi toolchain, build/typecheck/test, migrasi, dan health/readiness Sprint 0 pada lingkungan target; tutup advisory dependency menggunakan upgrade kompatibel yang tervalidasi.
-3. Setelah CR-01/CR-02 disahkan, implementasikan irisan vertikal autentikasi dan provisioning akun dengan pengujian sesuai keputusan; jangan mengasumsikan algoritma hash atau alur akun.
+1. Tutup keputusan CR yang menghalangi alur identitas dan akademik; selaraskan kebutuhan, diagram, backlog, dan kriteria penerimaan.
+2. Setelah CR-01 dan CR-02 disahkan, bangun irisan vertikal autentikasi/provisioning akun dengan algoritma hash dan alur yang telah diputuskan.
+3. Tambahkan alur kelas dan akademik sesuai keputusan, lalu lengkapi pengujian, rate limiting/CSRF, backup, serta persiapan deployment pada sprint yang sesuai.
 
 ## Git
 
-Belum dibuat initial commit. Pemilik memberikan identitas `RoyCorpt <roymarthin454@gmail.com>`, tetapi penulisan `.git/config` ditolak izin filesystem pada lingkungan ini. Selain itu, direktori `diagnostics/` kini diabaikan agar log lingkungan tidak ikut commit. Initial commit dapat dibuat setelah izin Git tersedia dan berkas yang akan dilacak ditinjau.
+Perubahan Sprint 0 dan perbaikan dependency dicatat di history repository. `.env` dan artefak lokal tidak dilacak.
