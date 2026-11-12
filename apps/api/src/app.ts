@@ -6,10 +6,13 @@ import { env } from './config/env.js';
 import { prisma } from './lib/prisma.js';
 import { requestContext } from './middleware/request-context.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { authRouter } from './auth.js';
+import { classesRouter } from './classes.js';
 
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
+  if (env.TRUST_PROXY) app.set('trust proxy', env.TRUST_PROXY);
   app.use(requestContext);
   app.use(helmet());
   app.use(cors({
@@ -20,6 +23,8 @@ export function createApp() {
   }));
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
+  app.use('/auth', authRouter);
+  app.use('/api/classes', classesRouter);
 
   app.get('/health', (_req, res) => res.status(200).json({ status: 'ok', service: 'lms-ptik-api' }));
   app.get('/ready', async (_req, res, next) => {

@@ -19,6 +19,11 @@ enum AccountStatus {
   PENDING
 }
 
+enum ClassStatus {
+  OPEN
+  CLOSED
+}
+
 model User {
   id           String        @id @default(uuid()) @db.Uuid
   email        String        @unique @db.VarChar(255)
@@ -27,19 +32,85 @@ model User {
   role         Role
   status       AccountStatus @default(PENDING)
   authVersion  Int           @default(0) @map("auth_version")
+  mustChangePassword Boolean @default(false) @map("must_change_password")
+  sessions     Session[]
+  rosterRegistration StudentRoster? @relation("StudentRosterRegistration")
+  ownedClasses Class[] @relation("ClassOwner")
+  memberships Membership[]
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
   @@map("users")
 }
 
-model StudentRoster {
+model Class {
+  id                    String      @id @default(uuid()) @db.Uuid
+  ownerId               String      @map("owner_id") @db.Uuid
+  name                  String      @db.VarChar(120)
+  description           String?     @db.VarChar(2000)
+  status                ClassStatus @default(OPEN)
+  invitationCodeHash    String?     @unique @map("invitation_code_hash") @db.Char(64)
+  invitationCodeVersion Int         @default(0) @map("invitation_code_version")
+  createdAt             DateTime    @default(now()) @map("created_at")
+  updatedAt             DateTime    @updatedAt @map("updated_at")
+  owner                 User        @relation("ClassOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  memberships           Membership[]
+
+  @@index([ownerId, status, createdAt, id])
+  @@map("classes")
+}
+
+model Membership {
   id        String   @id @default(uuid()) @db.Uuid
-  nim       String   @unique @db.VarChar(30)
-  email     String   @unique @db.VarChar(255)
-  fullName  String   @map("full_name") @db.VarChar(150)
-  active    Boolean  @default(true)
+  classId   String   @map("class_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Restrict)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([classId, userId])
+  @@index([userId, createdAt, id])
+  @@index([classId, createdAt, id])
+  @@map("memberships")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash") @db.Char(64)
+  csrfHash  String   @map("csrf_hash") @db.Char(64)
+  expiresAt DateTime @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@map("sessions")
+}
+
+model AuditEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String?  @map("actor_id") @db.Uuid
+  action    String   @db.VarChar(80)
+  subjectId String?  @map("subject_id") @db.Uuid
+  details   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@map("audit_events")
+}
+
+model StudentRoster {
+  id                   String   @id @default(uuid()) @db.Uuid
+  nim                  String   @unique @db.VarChar(30)
+  email                String   @unique @db.VarChar(255)
+  fullName             String   @map("full_name") @db.VarChar(150)
+  registrationEligible Boolean  @default(false) @map("registration_eligible")
+  registeredAt         DateTime? @map("registered_at")
+  registeredUserId     String?  @unique @map("registered_user_id") @db.Uuid
+  registeredUser       User?    @relation("StudentRosterRegistration", fields: [registeredUserId], references: [id], onDelete: SetNull)
+  createdAt            DateTime @default(now()) @map("created_at")
 
   @@map("student_roster")
 }
