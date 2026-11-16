@@ -2,20 +2,18 @@
   "name": "lms-ptik",
   "version": "0.2.0",
   "private": true,
+  "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
     "dev": "npm run build -w @lms/shared && npm run build -w @lms/web && npm run dev -w @lms/api",
-    "start": "node apps/api/dist/server.js",
+    "start": "node apps/api/dist/apps/api/src/server.js",
     "build": "npm run build -w @lms/shared && npm run build -w @lms/api && npm run build -w @lms/web",
     "postinstall": "npm run db:generate",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "db:generate": "npm run db:generate -w @lms/api",
-    "db:migrate": "npm run db:migrate -w @lms/api",
-    "db:deploy": "npm run db:deploy -w @lms/api"
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
@@ -25,10 +23,15 @@
     "deepmerge-ts": "^8.0.2"
   },
   "allowScripts": {
-    "@prisma/client@6.19.3": true,
-    "@prisma/engines@6.19.3": true,
-    "prisma@6.19.3": true,
     "esbuild@0.28.2": true,
     "esbuild@0.25.12": true
+  },
+  "dependencies": {
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.4",
+    "firebase": "^13.3.0",
+    "firebase-admin": "^14.5.1",
+    "pg": "^8.23.1"
   }
 }
