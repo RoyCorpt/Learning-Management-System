@@ -2,6 +2,51 @@
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
+## 2026-11-16 — Pencatatan ulang & pemutakhiran Changelog
+
+- Memperbarui `docs/CHANGELOG.md` untuk mendokumentasikan seluruh perubahan sejak Sprint 2 hingga pembaruan antarmuka terbaru pada platform **SINTAKS**.
+
+## 2026-11-15 — Pencarian & pengurutan daftar kelas (`SINTAKS`)
+
+- Menambahkan kolom pencarian waktu-nyata (`Cari kelas`) pada panel pengelolaan kelas di `apps/web/src/App.tsx` untuk memfilter kelas berdasarkan nama atau deskripsi, disertai penghitung hasil (`Menampilkan X dari Y kelas`) dan tombol `Reset pencarian` saat tidak ada hasil yang cocok.
+- Menambahkan menu dropdown pengurutan (`Urutkan`) dengan pilihan **Terbaru dibuat**, **Nama (A–Z)**, dan **Status (Terbuka dulu)**.
+- Menambahkan tata letak responsif `.class-toolbar` di `apps/web/src/classes.css` untuk desktop hingga mobile (`<= 680px`).
+- Verifikasi: `npm run typecheck`, `compile_applet`, serta pengecekan aset CSS/JS langsung pada port `3000` lulus.
+
+## 2026-11-15 — Integrasi logo SINTAKS, animasi interaktif & pembersihan tombol
+
+- Menjadikan logo resmi SINTAKS (`/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png`) sebagai favicon/apple-touch-icon di `apps/web/index.html` serta ikon merek di bilah navigasi atas (`apps/web/src/App.tsx`) lengkap dengan fallback teks `S` jika gambar gagal dimuat.
+- Menambahkan penyajian folder statis `public/` (`rootPublicDir`) di `apps/api/src/app.ts` agar aset logo tersedia di lingkungan dev dan produksi.
+- Menambahkan animasi hover/tekan berbasis GPU (`transform`, `opacity`, `box-shadow`) pada kartu kelas, kartu dasbor, tombol utama/sekunder/teks, kontrol notifikasi, opsi kuis, dan tombol navigasi soal, serta transisi pergantian tampilan/tab `sintaksFadeSlide` (`160ms–220ms`) di `styles.css`, `classes.css`, dan `workspace.css` dengan dukungan `@media (prefers-reduced-motion: reduce)`.
+- Menghapus seluruh simbol panah (`→`, `←`, `↓`, `↗`) dari label tombol dan tautan aksi di `App.tsx`, `DashboardAndProfile.tsx`, dan `QuizzesSection.tsx`.
+- Verifikasi: `npm run typecheck`, `compile_applet`, pemeriksaan nol simbol panah pada bundel JS terkompilasi, serta respons `200 OK` untuk logo PNG di port `3000`.
+
+## 2026-11-15 — Rebrand ke SINTAKS & redesain UI/UX akademik terang
+
+- Mengganti nama aplikasi dari **LMS Kampus PTIK** menjadi **SINTAKS** (`Portal Pembelajaran`) pada judul HTML, metadata OpenGraph, header merek, layar autentikasi, workspace kelas, dan footer.
+- Merombak `styles.css`, `classes.css`, dan `workspace.css` ke sistem desain editorial terang (`#FFFFFF`, `#FAFBF9`, `#EAF1EA`, `#F3F6F2`, aksen `#1F4D3A` dan `#3F7D58`, garis batas `#E3E8E1`), tipografi **Newsreader** + **Inter**, dan penyelarasan `tabular-nums` untuk tampilan `360px–1920px`.
+- Memperbarui `App.tsx`, `DashboardAndProfile.tsx`, `QuizzesSection.tsx`, `CommunicationSection.tsx`, dan `GradesSection.tsx`: banner profil dengan avatar inisial dan laci edit profil/kata sandi, tombol pintas `Dasbor` di bilah atas, tab workspace bergaris bawah, tampilan terpisah pengumpulan dan penilaian dosen (`Pratinjau Jawaban` + navigasi antar mahasiswa), serta runner kuis bebas-gangguan.
+- Memperluas endpoint `GET /api/dashboard/summary` di `apps/api/src/dashboard.ts` dan tipe `DashboardSummary` di `apps/web/src/lib/api.ts` untuk menyertakan `recentAnnouncements` dari kelas terbuka yang diikuti mahasiswa.
+- Verifikasi: `npm run typecheck`, `compile_applet`, serta uji langsung `/`, `/health`, `/auth/login`, dan `/api/dashboard/summary` di port `3000`.
+
+## 2026-11-14 — Sprint 4: Penilaian, kuis daring, komunikasi, notifikasi & dasbor
+
+- **Skema Database (`src/db/schema.ts`):** Menambahkan kolom penilaian `NUMERIC(5,2)` pada `submissions` (`score`, `feedback`, `grade_status`, `graded_by`, `graded_at`), tabel kuis (`quizzes`, `questions`, `question_options`, `quiz_attempts`, `attempt_answers`), tabel komunikasi (`announcements`, `forum_topics`, `forum_replies`), dan tabel `notifications`.
+- **Penilaian Tugas & Rekap (`apps/api/src/learning.ts`, `GradesSection.tsx`):** Menambahkan penilaian tugas `DRAFT`/`PUBLISHED` dengan pencatatan audit, publikasi massal nilai draf beserta pemicu notifikasi, matriks rekap nilai kelas untuk dosen (`GET .../grades/recap`), serta tab **Nilai & Umpan Balik** khusus nilai terpublikasi untuk mahasiswa (`GET .../my-grades`).
+- **Kuis Daring (`apps/api/src/quizzes.ts`, `QuizzesSection.tsx`):** Menambahkan CRUD & publikasi kuis, pembuat soal Pilihan Ganda dan Esai, pemeriksaan batas percobaan & jendela waktu server tanpa membocorkan kunci `is_correct` ke mahasiswa, autosave jawaban idempoten (`PUT /api/quizzes/attempts/:attemptId/answers`), penilaian otomatis pilihan ganda, penilaian esai manual oleh dosen (`PROVISIONAL` → `FINAL`), serta timer hitung mundur waktu-nyata.
+- **Komunikasi, Notifikasi & Dasbor (`communication.ts`, `notifications-service.ts`, `dashboard.ts`):** Menambahkan pengumuman kelas, topik & balasan forum (dengan jendela sunting 15 menit bagi penulis), lonceng notifikasi dalam aplikasi dengan navigasi langsung ke target kelas, ringkasan dasbor per peran (`ADMIN`, `DOSEN`, `MAHASISWA`), serta pembaruan profil dan kata sandi mandiri (`PATCH /api/users/me/profile`).
+
+## 2026-11-13 — Sprint 3: Ruang kelas, topik, materi & pengumpulan tugas
+
+- Menambahkan tabel `topics`, `materials` (`TEXT`, `LINK`, `FILE`), `assignments`, dan `submissions` di `src/db/schema.ts` beserta rute API di `apps/api/src/learning.ts`.
+- Mendukung manajemen topik dan materi oleh dosen (termasuk unggahan berkas maks. 4 MB dan toggle draf/publikasi) serta manajemen tugas (instruksi, tenggat opsional, kebijakan keterlambatan `allowLate`, status `OPEN`/`CLOSED`, dan daftar status pengumpulan mahasiswa).
+- Mendukung mahasiswa melihat/mengunduh materi serta mengirim/mengirim ulang tugas di dalam transaksi serializable dengan pelacakan versi (`Versi ke-N`) dan status `Tepat waktu` / `Terlambat`.
+
+## 2026-11-13 — Cloud SQL (`asia-southeast1`), Drizzle ORM & Firebase Auth
+
+- Mengaktifkan PostgreSQL Cloud SQL pada region `asia-southeast1` dan memigrasikan lapisan skema/query ke **Drizzle ORM** (`src/db/schema.ts`, `src/db/index.ts`, `src/db/drizzle.config.ts`) dengan tetap mempertahankan autentikasi Argon2id, sesi berbasis database, proteksi CSRF, dan otorisasi RBAC.
+- Menambahkan dukungan masuk dengan Google melalui Firebase Authentication (`apps/api/src/auth.ts`, `apps/web/src/lib/firebase.ts`) bersama akun Bootstrap Admin untuk pengujian aplikasi.
+
 ## 2026-11-12 — Sprint 2 selesai/diterima
 
 - Tim menerima implementasi Sprint 2 serta hasil UI yang diuji untuk saat ini; item S2-01–S2-06 dicatat selesai. Rincian hasil dan batas penerimaan ada di `SPRINT-2-ACCEPTANCE.md`.
