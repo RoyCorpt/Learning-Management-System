@@ -1,86 +1,71 @@
-# LMS Kampus PTIK
+# SINTAKS (LMS Kampus PTIK)
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
-Learning management system starter for the PTIK campus project. The current implementation covers authentication/account and roster workflows from Sprint 1, plus classes and memberships from Sprint 2.
+Portal pembelajaran kampus (**SINTAKS**, sebelumnya *LMS Kampus PTIK*) yang dibangun dengan arsitektur monorepo TypeScript. Implementasi saat ini mencakup seluruh ruang lingkup MVP **Sprint 1–4** beserta redesain antarmuka editorial terang **SINTAKS** dan berjalan pada database PostgreSQL (Cloud SQL `asia-southeast1`).
 
 ## Stack
-- Frontend: React + TypeScript + Vite
-- Backend: Node.js + Express + TypeScript
-- Database: PostgreSQL + Prisma ORM
-- Validation: Zod
+- **Frontend:** React + TypeScript + Vite (`apps/web`), responsif `360px–1920px`, antarmuka Bahasa Indonesia, tipografi Newsreader + Inter.
+- **Backend:** Node.js + Express + TypeScript (`apps/api`), autentikasi Argon2id + sesi opaque berbasis database + Firebase Auth (Google Sign-In) + proteksi CSRF & RBAC (`ADMIN`, `DOSEN`, `MAHASISWA`).
+- **Database & ORM:** PostgreSQL (Cloud SQL `asia-southeast1`) dengan **Drizzle ORM** (`src/db/`).
+- **Validasi & Shared Types:** Zod + `packages/shared`.
 
 ## Requirements
 - Node.js 20+
-- Docker Compose (for local PostgreSQL) or PostgreSQL 15+
+- PostgreSQL 15+ (lokal Docker Compose atau Cloud SQL melalui `DATABASE_URL`)
 
 ## Quick start
 ```bash
 cp .env.example .env
-docker compose up -d postgres
 npm install
-npm run db:generate
-npm run db:deploy
+npm run db:push
 npm run dev
 ```
 
-### Windows PowerShell
-Untuk menyalakan PostgreSQL, menunggu database siap, menerapkan migrasi, lalu menjalankan API dan website dalam satu langkah, buka PowerShell di folder proyek dan jalankan:
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\start-lms.ps1
+Build produksi & start server terpadu (menyajikan API dan bundel web `apps/web/dist` pada port `3000`):
+```bash
+npm run build
+npm start
 ```
-Docker Desktop harus sudah terbuka. Saat terminal menampilkan alamat Vite, buka http://localhost:5173. Biarkan PowerShell tetap terbuka selama aplikasi digunakan; tekan Ctrl+C untuk menghentikan API dan website. Database tetap berjalan di Docker dan dapat dihentikan dengan `docker compose stop postgres`.
 
-Set `STUDENT_EMAIL_DOMAINS` to a comma-separated allowlist. The default is `unimed.ac.id,mhs.unimed.ac.id`. To create the first Admin, set `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and a strong `BOOTSTRAP_ADMIN_PASSWORD` in a trusted shell, run `npm run db:bootstrap-admin -w @lms/api` once, then remove the values from that shell. The command refuses to create an Admin if any Admin already exists. Never commit or log those credentials.
+Untuk menyiapkan akun Admin awal melalui CLI (hanya berjalan jika belum ada Admin di database), atur `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, dan `BOOTSTRAP_ADMIN_PASSWORD`, lalu jalankan:
+```bash
+npm run db:bootstrap-admin -w @lms/api
+```
 
-- Frontend: http://localhost:5173
-- API liveness: http://localhost:4000/health
-- API readiness (checks PostgreSQL): http://localhost:4000/ready
+- **Aplikasi & API (dev/prod terpadu):** `http://localhost:3000`
+- **API liveness:** `GET /health`
+- **API readiness (cek koneksi PostgreSQL):** `GET /ready`
 
 ## Workspace
-- `apps/web` — web application
-- `apps/api` — API service
-- `apps/api/prisma` — Prisma schema and SQL migrations
-- `packages/shared` — shared types
-- `docs` — implementation decisions and traceability notes
+- `apps/web` — aplikasi web React + Vite (**SINTAKS**)
+- `apps/api` — layanan API Express + TypeScript
+- `src/db` — skema Drizzle ORM (`schema.ts`), koneksi database, dan konfigurasi Drizzle
+- `packages/shared` — tipe bersama antar workspace
+- `public` — aset statis termasuk logo resmi SINTAKS (`/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png`)
+- `docs` — dokumentasi baseline, skema, roadmap use case, changelog, dan laporan Sprint 0–4
 
-## Current status
+## Status website saat ini
 
-**As of 2026-11-12:** Sprint 1 is complete. Sprint 2 is **complete and accepted by the team**. Sprint 3 has a contract-design handoff only; Sprint 3 has not started and no Sprint 3 scope has been selected. Sprint 2 evidence and accepted limits are recorded in [`docs/SPRINT-2-ACCEPTANCE.md`](docs/SPRINT-2-ACCEPTANCE.md); its plan is [`docs/SPRINT-2-PLAN.md`](docs/SPRINT-2-PLAN.md).
+**Per 2026-11-16:** Seluruh alur MVP **Sprint 1 hingga Sprint 4** serta redesain **SINTAKS** telah diimplementasikan dan aktif di server:
+- **Sprint 1 (Identitas & Tata Kelola Akun):** Login/logout email & kata sandi (Argon2id), masuk dengan Google (Firebase Authentication), registrasi mahasiswa berbasis klaim satu kali terhadap roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), pembuatan akun Dosen dengan kata sandi sementara, perubahan kata sandi wajib/mandiri, dan tata kelola peran/status akun dengan perlindungan Admin aktif terakhir.
+- **Sprint 2 (Kelas & Keanggotaan):** Dosen membuat, mengubah, menutup kelas (`OPEN`/`CLOSED`), menerbitkan/merotasi kode undangan 43 karakter sekali tampil, dan melihat daftar anggota; mahasiswa `ACTIVE` bergabung ke kelas `OPEN` menggunakan kode undangan; dilengkapi pencarian (`Cari kelas`) dan pengurutan (`Terbaru dibuat`, `Nama (A–Z)`, `Status`).
+- **Sprint 3 (Topik, Materi, Tugas & Pengumpulan):** Manajemen topik dan materi (`TEXT`, `LINK`, `FILE` maks. 4 MB), publikasi materi draf/terbit, pembuatan tugas dengan tenggat opsional dan kebijakan keterlambatan (`allowLate`), serta pengumpulan/pengiriman ulang tugas oleh mahasiswa di dalam transaksi serializable dengan pelacakan `Versi ke-N` dan status `Tepat waktu` / `Terlambat`.
+- **Sprint 4 (Penilaian, Kuis, Komunikasi, Notifikasi & Dasbor):**
+  - Penilaian tugas oleh dosen (`DRAFT` vs `PUBLISHED`) dengan `NUMERIC(5,2)`, publikasi massal nilai draf, rekap nilai kelas (`Rekap Nilai`), serta tampilan nilai terpublikasi mahasiswa (`Nilai & Umpan Balik`).
+  - Kuis daring dengan builder soal Pilihan Ganda & Esai, aturan jendela waktu/batas percobaan di server, kunci jawaban tersembunyi dari mahasiswa, autosave jawaban idempoten, hitung mundur waktu-nyata, auto-grading PG, dan penilaian esai manual (`PROVISIONAL` → `FINAL`).
+  - Pengumuman kelas oleh dosen, Forum Diskusi dengan jendela sunting 15 menit, notifikasi dalam aplikasi dengan navigasi langsung ke tab tujuan, dasbor ringkasan per peran (`ADMIN`, `DOSEN`, `MAHASISWA`), serta edit profil dan kata sandi mandiri.
+- **UI/UX SINTAKS:** Rebrand penuh ke **SINTAKS**, logo resmi sebagai favicon & ikon navigasi, desain editorial terang (`#FFFFFF` / `#FAFBF9` / `#1F4D3A`), animasi hover/transisi ringan ramah `prefers-reduced-motion`, dan tombol bebas ikon panah.
 
-## Available workflows
+## Dokumentasi terkait
+- [`docs/SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md`](docs/SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md) — dokumentasi lengkap Sprint 3 dan Sprint 4 dari perencanaan hingga pelaksanaan
+- [`docs/USE-CASE-STATUS-AND-ROADMAP.md`](docs/USE-CASE-STATUS-AND-ROADMAP.md) — pemetaan status 18 use case (`UC-01`–`UC-18`)
+- [`docs/DATABASE-SCHEMA.md`](docs/DATABASE-SCHEMA.md) — ringkasan tabel dan enum PostgreSQL (Drizzle ORM)
+- [`docs/IMPLEMENTATION-BASELINE.md`](docs/IMPLEMENTATION-BASELINE.md) — baseline arsitektur & asumsi kerja terkini
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — catatan riwayat perubahan proyek
 
-- Account access: student registration from one eligible roster entry, login/logout, session and CSRF protections, and forced password change for accounts with a temporary password.
-- Admin: create lecturer accounts, import the student roster from CSV, and manage account roles/statuses.
-- Classes: lecturers create, list, edit, and close their classes; issue or rotate invitation codes and view their class members. Active students can join open classes with an invitation code and see their memberships.
-- Access is checked by the API using the signed-in account and role. Invitation codes are not returned in class listings.
-
-Course materials, file uploads, assignments, submissions, grading, notifications, and password recovery are not implemented in the current scope. This is not a complete LMS.
-
-## Verification record
-
-The team accepted these results; this README update did not rerun the test suites:
-
-| Check | Accepted result |
-|---|---|
-| Sprint 2 API integration | 17 passed, 2 skipped |
-| Focused audit rollback test | 1 passed |
-| Standard test suite | 7 passed, 13 skipped |
-| Workspace typecheck and web build | Passed |
-| Redocly OpenAPI validation | Valid, with 1 localhost warning |
-| `git diff --check` | Passed; Git reported LF/CRLF conversion notices |
-| Migration checks | Empty temporary PostgreSQL database passed; upgrade from a replayed Sprint 1 baseline with synthetic fixtures passed. This was **not** tested against the team's data-filled Sprint 1 database. |
-
-Skipped tests remain skipped and are not counted as passed. Detailed test and UI evidence is in [`docs/SPRINT-2-ACCEPTANCE.md`](docs/SPRINT-2-ACCEPTANCE.md).
-
-## Operational limits
-
-- The join rate limiter uses in-memory storage per API process. A shared store is required before multi-instance deployment.
-- Browser accessibility-tree checks were recorded, but screen-reader audio announcements have not been tested; accessibility has not been fully validated.
-- Production HTTPS, origin, cookie, proxy, backup, and other deployment settings still need verification. The project is **not production-ready**.
-- Do not place credentials, invitation codes, or real student data in source control, logs, or test fixtures.
-
-## Sprint 3
-
-[`docs/SPRINT-3-CONTRACT-HANDOFF.md`](docs/SPRINT-3-CONTRACT-HANDOFF.md) contains discussion candidates and contract questions only. The team has not chosen Sprint 3 scope or started implementation.
+## Catatan & batas operasional tersisa
+- **Reset kata sandi publik (`FR-05`):** Belum diimplementasikan (masih di backlog; memerlukan layanan pengiriman email verifikasi). Pengguna yang sudah masuk dapat mengganti kata sandi melalui profil akun.
+- **Rate limiter in-memory:** Pembatasan percobaan login/registrasi/join kelas masih memakai penyimpanan in-memory satu proses; penyimpanan bersama (mis. Redis) diperlukan sebelum deployment multi-instance.
+- **Aksesibilitas pembaca layar:** Navigasi keyboard dan kontras antarmuka telah diperhatikan, namun pengujian audio *screen reader* secara penuh belum dilakukan.
+- **Pengaturan produksi:** Verifikasi origin produksi, TLS/proxy, backup database, dan kebijakan retensi tetap diperlukan sebelum rilis produksi penuh.
