@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import argon2 from 'argon2';
+import { Algorithm, hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -7,7 +7,7 @@ import { createApp } from './app.js';
 import { prisma } from './lib/prisma.js';
 
 const enabled = process.env.RUN_DB_INTEGRATION === '1';
-const passwordOptions = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
+const passwordOptions = { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 
 type Fixture = {
   id: string;
@@ -26,7 +26,7 @@ async function createFixture(): Promise<Fixture> {
   const email = `f01-${unique}@example.invalid`;
   const currentPassword = `Current-${unique}-42!`;
   const newPassword = `New-${unique}-52!`;
-  const currentPasswordHash = await argon2.hash(currentPassword, passwordOptions);
+  const currentPasswordHash = await argon2Hash(currentPassword, passwordOptions);
   let server: Server | undefined;
   try {
     await prisma.user.create({
@@ -108,8 +108,8 @@ describe('F-01 atomic password change', () => {
       expect(user.mustChangePassword).toBe(false);
       expect(user.authVersion).toBe(1);
       expect(user.passwordHash).not.toBe(fixture.currentPasswordHash);
-      await expect(argon2.verify(user.passwordHash, fixture.currentPassword)).resolves.toBe(false);
-      await expect(argon2.verify(user.passwordHash, fixture.newPassword)).resolves.toBe(true);
+      await expect(argon2Verify(user.passwordHash, fixture.currentPassword)).resolves.toBe(false);
+      await expect(argon2Verify(user.passwordHash, fixture.newPassword)).resolves.toBe(true);
 
       const sessions = await prisma.session.findMany({ where: { userId: fixture.id } });
       expect(sessions).toHaveLength(2);

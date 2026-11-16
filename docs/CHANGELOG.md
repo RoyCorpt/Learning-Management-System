@@ -2,6 +2,12 @@
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
+## 2026-11-16 — Pemutakhiran README, dokumen status & laporan Sprint 3–4
+
+- Memperbarui `README.md` agar mencerminkan status website **SINTAKS** terkini (Sprint 1–4 MVP selesai, Cloud SQL `asia-southeast1` + Drizzle ORM, Firebase Auth, port terpadu `3000`, fitur UI/UX & pencarian/pengurutan kelas, serta batas operasional yang masih berlaku).
+- Memperbarui dokumen status terkait di `docs/`: `USE-CASE-STATUS-AND-ROADMAP.md` (pemetaan `UC-01`–`UC-18`), `DATABASE-SCHEMA.md` (seluruh tabel & enum Drizzle ORM), `IMPLEMENTATION-BASELINE.md`, `OPEN-DECISIONS.md` (`CR-04`, `CR-05`, `CR-07`), dan `SPRINT-3-CONTRACT-HANDOFF.md`.
+- Menambahkan `docs/SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md` yang mendokumentasikan perencanaan hingga pelaksanaan Sprint 3, Sprint 4, serta penyempurnaan antarmuka SINTAKS.
+
 ## 2026-11-16 — Pencatatan ulang & pemutakhiran Changelog
 
 - Memperbarui `docs/CHANGELOG.md` untuk mendokumentasikan seluruh perubahan sejak Sprint 2 hingga pembaruan antarmuka terbaru pada platform **SINTAKS**.

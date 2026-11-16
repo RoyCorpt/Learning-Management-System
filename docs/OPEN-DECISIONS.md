@@ -9,10 +9,10 @@ Dokumen ini mencatat keputusan dan pertanyaan yang masih terbuka. Baseline inter
 | CR-01 | Hash password | Baseline kerja Sprint 1 menetapkan Argon2id. | Implementasi memerlukan dependency dan parameter yang diverifikasi. | **DECIDED — Owner decision, 2026-11-01.** Gunakan Argon2id; parameter dicatat setelah kompatibilitas teruji. |
 | CR-02 | Pembuatan akun dosen | Baseline kerja Sprint 1 menetapkan provisioning oleh Admin. | Dokumen turunan harus mengikuti alur tersebut. | **DECIDED — Owner decision, 2026-11-01.** Dosen tidak mendaftar sendiri. |
 | CR-03 | Keanggotaan kelas | Tahap B memberi opsi kode kelas atau penambahan manual; rekomendasi desain MVP adalah kode kelas. | Memengaruhi use case dan hak akses Admin/Dosen. | **DECIDED — DEC-S2-01, keputusan internal tim 2026-11-06.** Dosen membuat/mengelola kelas miliknya; Mahasiswa ACTIVE bergabung ke kelas OPEN memakai kode undangan acak. Penambahan manual Admin/Dosen di luar MVP Sprint 2. Kode di-hash, dapat dirotasi pemilik kelas, dan tidak dicatat di log. |
-| CR-04 | Notifikasi FR-38 | FR-38 tetap di luar implementasi Sprint 1. | Tidak memengaruhi irisan autentikasi Sprint 1. | Ditunda di luar Sprint 1 sesuai baseline owner 2026-11-01; requirement dipertahankan. |
-| CR-05 | Pengumpulan tugas FR-40 | FR-40 tetap di luar implementasi Sprint 1. | Tidak memengaruhi irisan autentikasi Sprint 1. | Ditunda di luar Sprint 1 sesuai baseline owner 2026-11-01; requirement dipertahankan. |
+| CR-04 | Notifikasi FR-38 | FR-38 tetap di luar implementasi Sprint 1. | Tidak memengaruhi irisan autentikasi Sprint 1. | **RESOLVED — Implemented in Sprint 4.** Notifikasi dalam aplikasi (`notifications` + `NotificationBell`) aktif untuk tugas baru, kuis baru, pengumuman, dan rilis nilai. |
+| CR-05 | Pengumpulan tugas FR-40 | FR-40 tetap di luar implementasi Sprint 1. | Tidak memengaruhi irisan autentikasi Sprint 1. | **RESOLVED — Implemented in Sprint 3.** Pengumpulan teks/lampiran transaksional dengan versi dan status keterlambatan aktif pada `learning.ts`. |
 | CR-06 | Durasi sprint | Tahap C tidak konsisten dengan ketentuan tugas MPTI tentang minimal tiga sprint dua minggu. | Baseline jadwal dan estimasi tidak dapat diaudit. | Konfirmasi aturan akademik dan revisi jadwal baseline. |
-| CR-07 | Batas unggah | Baseline kerja menetapkan 4 MB per berkas, tetapi upload tidak termasuk Sprint 1. | Perlu implementasi dan verifikasi pada sprint upload. | **DECIDED — Owner decision, 2026-11-01.** Terapkan 4 MB saat fitur upload dikerjakan. |
+| CR-07 | Batas unggah | Baseline kerja menetapkan 4 MB per berkas, tetapi upload tidak termasuk Sprint 1. | Perlu implementasi dan verifikasi pada sprint upload. | **RESOLVED — Implemented in Sprint 3.** Validasi batas 4 MB per berkas diterapkan pada unggahan materi dan pengumpulan tugas. |
 | CR-08 | Sumber roster mahasiswa | Roster resmi tersedia sebagai `Book1.csv`; format aktual sudah dianalisis. | Parser dan pencocokan identitas harus mengikuti format file, bukan asumsi. | **RESOLVED — Owner supplied CSV, 2026-11-01.** Impor Admin memvalidasi kolom `nim`, `nama`, `email`, `status`; status `layak` memetakan ke `registration_eligible`. |
 | CR-09 | Domain email kampus | Domain awal `unimed.ac.id`; file memakai subdomain `mhs.unimed.ac.id`. | Allowlist harus menerima domain data resmi tanpa hardcode business logic. | **DECIDED — Owner decision, 2026-11-01.** Allowlist configurable default `unimed.ac.id,mhs.unimed.ac.id`. |
 | CR-10 | Registrasi Mahasiswa | Kelayakan roster tidak sama dengan status akun. | Satu entri roster hanya boleh diklaim sekali; akun baru tidak boleh otomatis aktif. | **DECIDED — Owner decision, 2026-11-01.** `layak`→`registration_eligible`; claim satu kali; akun dibuat PENDING sampai Admin mengaktifkan. Status CSV yang tak dikenal ditolak. |
@@ -23,10 +23,9 @@ Dokumen ini mencatat keputusan dan pertanyaan yang masih terbuka. Baseline inter
 3. Setiap keputusan harus mencatat pemilik keputusan, tanggal, alasan, dampak pada dokumen, dan versi artefak yang diperbarui.
 4. Setelah disetujui, perbarui SRS/kebutuhan, use case, activity/sequence diagram, ERD, backlog, dan test case yang terdampak.
 
-## Keputusan teknis lokal Sprint 0
-- Implementasi menggunakan React + TypeScript + Vite, Express + TypeScript, PostgreSQL + Prisma.
-- CSS biasa dipertahankan pada scaffold; Tailwind tidak dikonfigurasi pada kode awal dan tidak boleh diasumsikan tersedia.
-- Tabel awal hanya `users` dan `student_roster`; ini belum ERD final LMS.
+## Pembaruan arsitektur Sprint 3–4 (2026-11-16)
+- Implementasi aktif menggunakan React + TypeScript + Vite (**SINTAKS**), Express + TypeScript, PostgreSQL (Cloud SQL `asia-southeast1`) + **Drizzle ORM** (`src/db/schema.ts`), dan Firebase Auth (Google Sign-In).
+- Skema penuh Sprint 1–4 mencakup identitas/sesi, kelas/keanggotaan, topik/materi/tugas/pengumpulan, kuis daring, pengumuman, forum, dan notifikasi.
 
 ## Sumber keputusan Sprint 1
 

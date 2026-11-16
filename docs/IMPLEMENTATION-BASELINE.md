@@ -1,38 +1,32 @@
-# LMS Kampus PTIK — Implementation Baseline
+# SINTAKS (LMS Kampus PTIK) — Implementation Baseline
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
 ## Status
-Scaffold Sprint 0, version 0.2.0. Sprint 1 began under the owner’s internal baseline dated 2026-11-01. This repository is not a completed LMS and is not approved for production use.
+**Versi 0.2.0 — Pembaruan baseline per 2026-11-16.**  
+Seluruh ruang lingkup MVP **Sprint 1 hingga Sprint 4** serta pembaruan antarmuka **SINTAKS** telah diimplementasikan pada database Cloud SQL PostgreSQL (`asia-southeast1`). Catatan kesiapan produksi (rate-limiter terdistribusi, uji *screen reader* audio, dan `FR-05`) tetap tercantum sebagai tindak lanjut operasional.
 
 ## Architecture
-- `apps/web`: React + TypeScript + Vite frontend.
-- `apps/api`: Express + TypeScript backend.
-- `packages/shared`: shared role and API types.
-- PostgreSQL via Prisma schema in `apps/api/prisma`.
+- `apps/web`: Frontend React + TypeScript + Vite (**SINTAKS**, tema editorial terang, responsif `360px–1920px`).
+- `apps/api`: Backend Node.js + Express + TypeScript (menyajikan rute `/auth/*`, `/api/*`, `public/`, dan bundel `apps/web/dist` pada port `3000`).
+- `src/db`: Skema PostgreSQL **Drizzle ORM** (`schema.ts`, `index.ts`, `drizzle.config.ts`) dengan migrasi/sinkronisasi menuju Cloud SQL (`asia-southeast1`).
+- `packages/shared`: Tipe peran dan API bersama.
+- `public`: Aset statis termasuk logo SINTAKS (`/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png`).
 
-## Working assumptions
-- Roles: `ADMIN`, `DOSEN`, `MAHASISWA`.
-- Authorization must be deny-by-default and combine role checks with class ownership/membership checks.
-- Admin bootstrap must be a restricted CLI/seed operation, never a public signup endpoint.
-- Student registration matches normalized campus email and NIM against an eligible roster row, atomically claims it once, and creates the account as `PENDING`; Admin activation is separate.
-- Demo and development data must be fictional. Secrets belong only in environment variables.
-- Password hashing: Argon2id (owner decision, 2026-11-01); library `argon2@0.45.1` is installed.
-- Admin creates DOSEN accounts; student signup uses configurable `unimed.ac.id,mhs.unimed.ac.id` allowlist and an Admin-imported roster CSV.
-- Supplied roster CSV has UTF-8 BOM, semicolon delimiter, four blank leading columns, and effective columns `nim`, `nama`, `email`, `status`. Only `layak` is currently recognized as registration eligible; other status values fail closed.
-- Reset password FR-05 remains in the backlog. FR-38 and FR-40 remain outside Sprint 1. Upload limit baseline is 4 MB for its future implementation.
-- Cookie/session revocation, CSRF, rate limiting, audit events, account APIs, and authentication UI were added in Sprint 1; see Sprint 1 test results for remaining coverage gaps.
+## Working assumptions & implemented baselines
+- **Peran:** `ADMIN`, `DOSEN`, `MAHASISWA` dengan otorisasi *deny-by-default* berbasis sesi server-side dan kepemilikan/keanggotaan kelas.
+- **Autentikasi:** Login email/kata sandi (Argon2id), sesi opaque + cookie `HttpOnly` dengan CSRF cookie, rate limit, masuk dengan Google (Firebase Authentication), registrasi mahasiswa berbasis klaim satu kali pada roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), serta pembuatan akun Dosen oleh Admin dengan kata sandi sementara.
+- **Pengelolaan Kelas & Pembelajaran:** Kelas `OPEN`/`CLOSED` milik Dosen dengan kode undangan 43 karakter sekali tampil, pencarian & pengurutan kelas, topik & materi (`TEXT`, `LINK`, `FILE` batas **4 MB** per berkas), tugas dengan pengumpulan transaksional `Serializable` berversi (`Versi ke-N`), penilaian tugas `DRAFT`/`PUBLISHED` (`NUMERIC(5,2)`) & rekap nilai, kuis daring berwaktu dengan autosave & penilaian esai manual, pengumuman kelas, forum diskusi (jendela sunting 15 menit), notifikasi dalam aplikasi, dasbor ringkasan per peran, dan edit profil/kata sandi saat login.
+- **Domain Allowlist Mahasiswa:** Configurable via `STUDENT_EMAIL_DOMAINS` (default `unimed.ac.id,mhs.unimed.ac.id`).
+- **Backlog Terbuka:** Reset kata sandi publik (`FR-05` di luar sesi login) tetap ditunda di backlog karena membutuhkan penyedia email verifikasi.
 
-## Important unresolved items
-1. Confirm authoritative project revisions A–F and master index; they were not present in the repository file inventory.
-2. Verify deployment provider constraints before production deployment.
-3. Define and test email, private object storage, backup/restore, and production observability in their applicable sprints.
+## Important operational & production follow-up items
+1. Ganti store rate limiter in-memory dengan *shared store* (seperti Redis) sebelum menjalankan banyak instance API secara paralel.
+2. Verifikasi konfigurasi TLS/HTTPS proxy, `WEB_ORIGIN`, `COOKIE_SECURE=true`, dan jadwal backup/restore sebelum deployment produksi penuh.
+3. Lakukan pengujian audio *screen reader* penuh untuk validasi aksesibilitas lanjutan.
 
 ## Local setup
-1. Install Node.js 20 or newer and PostgreSQL 15 or newer.
-2. Copy `.env.example` to `.env` and set local values.
-3. Run `npm install`.
-4. Run `npm run dev`.
-5. Web: `http://localhost:5173`; API health: `http://localhost:4000/health`.
-
-The current Sprint 1 branch exposes authentication and account-management APIs. Academic-domain APIs remain outside Sprint 1.
+1. Pasang Node.js 20+ dan siapkan `DATABASE_URL` PostgreSQL 15+ (atau Cloud SQL) pada `.env`.
+2. Jalankan `npm install`.
+3. Sinkronkan skema dengan `npm run db:push` (dan jalankan `npm run db:bootstrap-admin -w @lms/api` satu kali bila Admin awal belum tersedia).
+4. Jalankan `npm run dev` (atau `npm run build && npm start`), lalu buka `http://localhost:3000`.

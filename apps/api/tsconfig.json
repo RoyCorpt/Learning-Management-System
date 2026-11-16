@@ -1,1 +1,12 @@
-{"extends":"../../tsconfig.base.json","compilerOptions":{"outDir":"dist","rootDir":"src","types":["node"]},"include":["src/**/*.ts"],"exclude":["src/**/*.test.ts","src/**/*.spec.ts","dist","node_modules"]}
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "../..",
+    "resolveJsonModule": true,
+    "exactOptionalPropertyTypes": false,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "../../src/db/**/*.ts", "../../firebase-applet-config.json"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "dist", "node_modules"]
+}

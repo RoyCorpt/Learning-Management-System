@@ -1,6 +1,6 @@
 # Handoff: Memulai Kontrak Desain Sprint 3
 
-**Status:** bahan awal diskusi kontrak saja. Sprint 3 belum dipilih, belum committed, dan bukan *In Progress*. Dokumen ini tidak memilih scope atau kebijakan produk.
+**Status (diperbarui 2026-11-16):** Dokumen historis pra-Sprint 3. Kandidat scope materi pembelajaran, unggah berkas (4 MB), tugas/pengumpulan, penilaian, serta notifikasi telah direkonsiliasi dan diimplementasikan pada Sprint 3 dan Sprint 4; lihat [SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md](SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md) dan [USE-CASE-STATUS-AND-ROADMAP.md](USE-CASE-STATUS-AND-ROADMAP.md). (`FR-05` reset kata sandi publik tetap di backlog.)
 
 ## Baseline yang dibawa
 

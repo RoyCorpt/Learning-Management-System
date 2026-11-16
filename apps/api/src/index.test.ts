@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import argon2 from 'argon2';
+import { Algorithm, hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -55,11 +55,11 @@ describe('Sprint 1 authentication foundation', () => {
 
   it('hashes passwords with Argon2id and verifies without storing plaintext', async () => {
     const password = 'Example-Long-Password-42!';
-    const hash = await argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
+    const hash = await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
     expect(hash).not.toBe(password);
     expect(hash).toContain('$argon2id$');
-    await expect(argon2.verify(hash, password)).resolves.toBe(true);
-    await expect(argon2.verify(hash, `${password}wrong`)).resolves.toBe(false);
+    await expect(argon2Verify(hash, password)).resolves.toBe(true);
+    await expect(argon2Verify(hash, `${password}wrong`)).resolves.toBe(false);
   });
 
   it('protects the profile endpoint without a valid session', async () => {
@@ -84,7 +84,7 @@ describe('Sprint 1 authentication foundation', () => {
     const { createApp } = await import('./app.js');
     const { prisma } = await import('./lib/prisma.js');
     const id = randomUUID(); const email = `sprint1-${id}@example.invalid`; const password = 'Integration-Password-42!';
-    const user = await prisma.user.create({ data: { email, fullName: 'Sprint One Test', role: 'MAHASISWA', status: 'ACTIVE', passwordHash: await argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const user = await prisma.user.create({ data: { email, fullName: 'Sprint One Test', role: 'MAHASISWA', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
     const server = createApp().listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -137,7 +137,7 @@ describe('Sprint 1 authentication foundation', () => {
     const { prisma } = await import('./lib/prisma.js');
     const id = randomUUID(); const email = `logout-rollback-${id}@example.invalid`; const password = 'Logout-Rollback-Password-42!';
     const trigger = `logout_${id.replaceAll('-', '')}_trigger`; const fn = `logout_${id.replaceAll('-', '')}_fn`;
-    const user = await prisma.user.create({ data: { email, fullName: 'Logout Rollback Test', role: 'MAHASISWA', status: 'ACTIVE', passwordHash: await argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const user = await prisma.user.create({ data: { email, fullName: 'Logout Rollback Test', role: 'MAHASISWA', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
     let server: Server | undefined;
     try {
       server = createApp().listen(0);
@@ -172,9 +172,9 @@ describe('Sprint 1 authentication foundation', () => {
     const { createApp } = await import('./app.js');
     const { prisma } = await import('./lib/prisma.js');
     const id = randomUUID(); const email = `admin-provision-${id}@example.invalid`; const instructorEmail = `dosen-${id}@example.invalid`; const password = 'Temporary-Admin-Password-42!';
-    const admin = await prisma.user.create({ data: { email, fullName: 'Temporary Provisioning Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const admin = await prisma.user.create({ data: { email, fullName: 'Temporary Provisioning Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
     const targetAdminEmail = `admin-target-${id}@example.invalid`; const targetAdminPassword = 'Target-Admin-Password-42!';
-    const targetAdmin = await prisma.user.create({ data: { email: targetAdminEmail, fullName: 'Temporary Target Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2.hash(targetAdminPassword, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const targetAdmin = await prisma.user.create({ data: { email: targetAdminEmail, fullName: 'Temporary Target Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(targetAdminPassword, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
     let server: Server | undefined; let instructorId: string | undefined;
     try {
       server = createApp().listen(0);
@@ -248,7 +248,7 @@ describe('Sprint 1 authentication foundation', () => {
       { nim: rollbackNimA, email: rollbackEmailA, fullName: 'Temporary Conflict A', registrationEligible: true },
       { nim: rollbackNimB, email: rollbackEmailB, fullName: 'Temporary Conflict B', registrationEligible: true },
     ] });
-    const admin = await prisma.user.create({ data: { email: adminEmail, fullName: 'Temporary Roster Test Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const admin = await prisma.user.create({ data: { email: adminEmail, fullName: 'Temporary Roster Test Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
     let server: Server | undefined;
     try {
       server = createApp().listen(0);
