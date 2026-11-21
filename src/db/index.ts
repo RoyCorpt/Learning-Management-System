@@ -1,7 +1,9 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import { resolveDatabaseConnection } from './config.js';
+import { loadLocalEnvFile, resolveDatabaseConnection } from './config.js';
 import * as schema from './schema.js';
+
+loadLocalEnvFile();
 
 declare global {
   // eslint-disable-next-line no-var

@@ -51,6 +51,7 @@ export function loadLocalEnvFile(): void {
   const candidates = [
     path.resolve(process.cwd(), '.env'),
     path.resolve(__dirname, '../../.env'),
+    path.resolve(__dirname, '../../../../.env'),
   ];
 
   const envPath = candidates.find((candidate) => fs.existsSync(candidate));
