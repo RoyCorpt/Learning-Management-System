@@ -10,3 +10,6 @@ coverage/
 audit-report.json
 diagnostics/
 *.tsbuildinfo
+.agents/
+.hallmark/
+

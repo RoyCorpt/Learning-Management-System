@@ -8,6 +8,7 @@ import {
   type QuizQuestion,
   type Role,
 } from '../lib/api.ts';
+import { ExpandableAnswerText } from './ExpandableAnswerText.tsx';
 
 type QuizzesSectionProps = {
   classItem: ClassSummary;
@@ -132,7 +133,7 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
 
     try {
       await request(`/api/quizzes/attempts/${session.attempt.id}/answers`, { answers: payload }, 'PUT');
-      setAutosaveStatus(`Tersimpan otomatis · ${new Date().toLocaleTimeString('id-ID')}`);
+      setAutosaveStatus(`Tersimpan otomatis, ${new Date().toLocaleTimeString('id-ID')}`);
     } catch (error) {
       if (showErrors) {
         onStatusMessage(error instanceof Error ? error.message : 'Gagal menyimpan jawaban.');
@@ -413,7 +414,7 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
           ? 'Waktu habis! Jawaban Anda telah dikumpulkan secara otomatis.'
           : res.attempt.status === 'FINAL'
             ? `Kuis selesai dikumpulkan. Skor Final: ${res.attempt.finalScore}.`
-            : `Kuis dikumpulkan. Skor Sementara (Pilihan Ganda): ${res.attempt.autoScore} — menunggu penilaian esai oleh dosen.`,
+            : `Kuis dikumpulkan. Skor Sementara (Pilihan Ganda): ${res.attempt.autoScore}, menunggu penilaian esai oleh dosen.`,
       );
       setActiveSession(null);
       await openResult(res.attempt.id);
@@ -467,7 +468,7 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
           <div className="quiz-runner-identity">
             <strong>{activeSession.quiz.title}</strong>
             <span>
-              {classItem.name} · Percobaan ke-{activeSession.attempt.attemptNumber}
+              {classItem.name}, Percobaan ke-{activeSession.attempt.attemptNumber}
             </span>
           </div>
           <div className="quiz-runner-status">
@@ -480,12 +481,12 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
         </div>
 
         <div className="quiz-intro-header">
-          <p className="section-kicker">KUIS BERLANGSUNG · SINTAKS</p>
           <h4>{activeSession.quiz.title}</h4>
           <p className="workspace-muted">
-            {activeSession.questions.length} soal · {totalPoints} poin
+            <span className="num">{activeSession.questions.length} soal</span>,{' '}
+            <span className="num">{totalPoints} poin</span>
             {activeSession.quiz.closesAt
-              ? ` · Batas waktu ${new Date(activeSession.quiz.closesAt).toLocaleString('id-ID')}`
+              ? `, batas waktu ${new Date(activeSession.quiz.closesAt).toLocaleString('id-ID')}`
               : ''}
           </p>
         </div>
@@ -497,7 +498,7 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                 <span className="quiz-question-counter">
                   Soal {currentQuestionIndex + 1} dari {activeSession.questions.length}
                 </span>
-                <div className="workspace-badges" style={{ marginTop: 0 }}>
+                <div className="workspace-badges workspace-badges--tight">
                   <span className="workspace-badge">
                     {currentQ.type === 'MULTIPLE_CHOICE' ? 'Pilihan Ganda' : 'Esai'}
                   </span>
@@ -695,7 +696,7 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
               <input name="timeLimitMinutes" type="number" min={1} max={300} defaultValue={30} required />
             </label>
             <label>
-              Maksimal percobaan (1–3)
+              Maksimal percobaan (1 hingga 3)
               <input name="maxAttempts" type="number" min={1} max={3} defaultValue={1} required />
             </label>
           </div>
@@ -755,14 +756,14 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
               return (
                 <div key={q.id} className="quiz-review-item">
                   <strong>
-                    Soal {idx + 1} ({q.type === 'MULTIPLE_CHOICE' ? 'Pilihan Ganda' : 'Esai'} · maks.{' '}
+                    Soal {idx + 1} ({q.type === 'MULTIPLE_CHOICE' ? 'Pilihan Ganda' : 'Esai'}, maks.{' '}
                     {q.points} poin)
                   </strong>
                   <p className="workspace-body-text">{q.prompt}</p>
                   {q.type === 'MULTIPLE_CHOICE' ? (
                     <p className="workspace-muted">
-                      Jawaban Anda: {selectedOpt ? selectedOpt.label : 'Tidak dijawab'} · Nilai:{' '}
-                      {ans?.pointsAwarded ?? '0.00'}
+                      Jawaban Anda: {selectedOpt ? selectedOpt.label : 'Tidak dijawab'}. Nilai:{' '}
+                      <span className="num">{ans?.pointsAwarded ?? '0.00'}</span>
                     </p>
                   ) : (
                     <>
@@ -905,14 +906,18 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                         {myAttempts.map((att) => (
                           <div key={att.id} className="workspace-receipt">
                             <div className="workspace-item-header">
-                              <div className="workspace-badges" style={{ marginTop: 0 }}>
-                                <span className="workspace-badge neutral">
+                              <div className="workspace-badges workspace-badges--tight">
+                                <span className="workspace-badge neutral receipt-version">
                                   Percobaan ke-{att.attemptNumber}
                                 </span>
                                 <span
-                                  className={`workspace-badge ${
-                                    att.status === 'FINAL' ? 'open' : 'late'
-                                  }`}
+                                  className={
+                                    att.status === 'FINAL'
+                                      ? 'stamp-seal'
+                                      : att.status === 'IN_PROGRESS'
+                                        ? 'workspace-badge late'
+                                        : 'stamp-seal late'
+                                  }
                                 >
                                   {att.status === 'IN_PROGRESS'
                                     ? 'Sedang berlangsung'
@@ -1122,10 +1127,10 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                                         : 'Sementara (Perlu Nilai Esai)'}
                                   </span>
                                 </td>
-                                <td>{att.autoScore}</td>
-                                <td>{att.manualScore}</td>
+                                <td className="num">{att.autoScore}</td>
+                                <td className="num">{att.manualScore}</td>
                                 <td>
-                                  <strong>{att.finalScore ?? '—'}</strong>
+                                  <strong className="num">{att.finalScore ?? '-'}</strong>
                                 </td>
                                 <td>
                                   {att.status !== 'IN_PROGRESS' && (
@@ -1151,7 +1156,7 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                         onSubmit={(e) => void submitEssayGrades(e)}
                       >
                         <h6>
-                          Penilaian Jawaban — {gradingAttempt.student.fullName} (Percobaan ke-
+                          Penilaian Jawaban: {gradingAttempt.student.fullName} (Percobaan ke-
                           {gradingAttempt.attempt.attemptNumber})
                         </h6>
                         {gradingAttempt.questions.map((q, idx) => {
@@ -1164,8 +1169,9 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                                   {idx + 1}. [Pilihan Ganda] {q.prompt}
                                 </strong>
                                 <p className="workspace-muted">
-                                  Jawaban: {selectedOpt ? selectedOpt.label : 'Tidak dijawab'} · Skor
-                                  otomatis: {ans?.pointsAwarded ?? '0.00'} / {q.points}
+                                  Jawaban: {selectedOpt ? selectedOpt.label : 'Tidak dijawab'}. Skor
+                                  otomatis: <span className="num">{ans?.pointsAwarded ?? '0.00'}</span> /{' '}
+                                  <span className="num">{q.points}</span>
                                 </p>
                               </div>
                             );
@@ -1174,14 +1180,25 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                           return (
                             <div key={q.id} className="quiz-review-item">
                               <strong>
-                                {idx + 1}. [Esai · maks. {q.points} poin] {q.prompt}
+                                {idx + 1}. [Esai, maks. {q.points} poin] {q.prompt}
                               </strong>
-                              <p className="workspace-body-text">
-                                Jawaban Mahasiswa: {ans?.textAnswer || '(Tidak diisi)'}
-                              </p>
+                              {ans?.textAnswer ? (
+                                <ExpandableAnswerText
+                                  key={`${gradingAttempt.attempt.id}-${q.id}`}
+                                  text={ans.textAnswer}
+                                  className="workspace-roster-answer-text"
+                                  prefixLabel="Jawaban Mahasiswa:"
+                                  studentName={gradingAttempt.student.fullName}
+                                  contextLabel={`${quiz.title}, Soal ${idx + 1}`}
+                                />
+                              ) : (
+                                <p className="workspace-body-text">
+                                  <strong>Jawaban Mahasiswa:</strong> (Tidak diisi)
+                                </p>
+                              )}
                               <div className="workspace-two-col">
                                 <label>
-                                  Skor Esai (0–{q.points})
+                                  Skor Esai (0 hingga {q.points})
                                   <input
                                     type="number"
                                     step="0.01"

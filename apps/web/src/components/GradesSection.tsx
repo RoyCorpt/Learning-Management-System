@@ -97,7 +97,7 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
         <div className="workspace-item-card">
           <div className="workspace-item-header">
             <div>
-              <h5>Rekap Nilai Kelas — {classItem.name}</h5>
+              <h5>Rekap Nilai Kelas: {classItem.name}</h5>
               <div className="workspace-badges">
                 <span className="workspace-badge open">
                   Rata-rata Kelas: {recap.classAverage ?? 'Belum ada nilai'}
@@ -161,7 +161,7 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                           <td key={a.id}>
                             {cell?.score !== null && cell?.score !== undefined ? (
                               <div className="gradebook-cell">
-                                <strong>{cell.score}</strong>
+                                <strong className="num">{cell.score}</strong>
                                 <span
                                   className={`workspace-badge ${
                                     cell.gradeStatus === 'PUBLISHED' ? 'open' : 'late'
@@ -171,7 +171,7 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                                 </span>
                               </div>
                             ) : (
-                              '—'
+                              '-'
                             )}
                           </td>
                         );
@@ -182,7 +182,7 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                           <td key={q.id}>
                             {cell?.score !== null && cell?.score !== undefined ? (
                               <div className="gradebook-cell">
-                                <strong>{cell.score}</strong>
+                                <strong className="num">{cell.score}</strong>
                                 <span
                                   className={`workspace-badge ${
                                     cell.status === 'FINAL' ? 'open' : 'late'
@@ -192,13 +192,13 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                                 </span>
                               </div>
                             ) : (
-                              '—'
+                              '-'
                             )}
                           </td>
                         );
                       })}
                       <td>
-                        <strong>{row.averageScore ?? '—'}</strong>
+                        <strong className="num">{row.averageScore ?? '-'}</strong>
                       </td>
                     </tr>
                   ))}
@@ -206,16 +206,16 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                     <th scope="row">Rata-rata Kelas per Item</th>
                     {recap.assignments.map((a) => (
                       <td key={a.id}>
-                        <strong>{recap.itemAverages[`assignment:${a.id}`] ?? '—'}</strong>
+                        <strong className="num">{recap.itemAverages[`assignment:${a.id}`] ?? '-'}</strong>
                       </td>
                     ))}
                     {recap.quizzes.map((q) => (
                       <td key={q.id}>
-                        <strong>{recap.itemAverages[`quiz:${q.id}`] ?? '—'}</strong>
+                        <strong className="num">{recap.itemAverages[`quiz:${q.id}`] ?? '-'}</strong>
                       </td>
                     ))}
                     <td>
-                      <strong>{recap.classAverage ?? '—'}</strong>
+                      <strong className="num">{recap.classAverage ?? '-'}</strong>
                     </td>
                   </tr>
                 </tbody>
@@ -260,8 +260,8 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                   <div>
                     <h6>{item.assignmentTitle}</h6>
                     <div className="workspace-badges">
-                      <span className="workspace-badge open">Nilai: {item.score ?? '0.00'}</span>
-                      <span className="workspace-badge neutral">
+                      <span className="stamp-seal">Nilai: {item.score ?? '0.00'}</span>
+                      <span className="workspace-badge neutral receipt-version">
                         Pengumpulan Versi ke-{item.version}
                       </span>
                       <span className={`workspace-badge ${item.isLate ? 'late' : 'open'}`}>
@@ -305,15 +305,15 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                     </h6>
                     <div className="workspace-badges">
                       <span
-                        className={`workspace-badge ${q.status === 'FINAL' ? 'open' : 'late'}`}
+                        className={q.status === 'FINAL' ? 'stamp-seal' : 'stamp-seal late'}
                       >
                         {q.status === 'FINAL'
                           ? `Skor Final: ${q.finalScore ?? q.autoScore}`
                           : `Skor Sementara: ${q.autoScore}`}
                       </span>
-                      <span className="workspace-badge neutral">Pilihan Ganda: {q.autoScore}</span>
+                      <span className="workspace-badge neutral num">Pilihan Ganda: {q.autoScore}</span>
                       {Number(q.manualScore) > 0 && (
-                        <span className="workspace-badge neutral">Esai: {q.manualScore}</span>
+                        <span className="workspace-badge neutral num">Esai: {q.manualScore}</span>
                       )}
                       {q.submittedAt && (
                         <span className="workspace-meta-time">

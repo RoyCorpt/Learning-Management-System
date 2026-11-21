@@ -1,0 +1,151 @@
+:root {
+  color-scheme: light;
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+  --space-2xl: 64px;
+  --space-3xl: 96px;
+  --space-4xl: 144px;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.2rem;
+  --text-xl: 1.44rem;
+  --text-2xl: 1.728rem;
+  --text-3xl: 2.074rem;
+  --text-display-s: 1.44rem;
+  --text-display: 1.728rem;
+  --text-section: 1.2rem;
+  --text-title: 1rem;
+  --text-lead: 1rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  --container: 1440px;
+  --gutter: 64px;
+  --gap-columns: 32px;
+  --section-gap-s: 120px;
+  --section-gap: 144px;
+  --section-gap-l: 176px;
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-sticky-nav: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+
+  --color-paper: oklch(97.6% 0.011 88);
+  --color-paper-2: oklch(96.5% 0.02 160);
+  --color-paper-3: oklch(93% 0.036 160);
+  --color-surface: oklch(99.2% 0.008 88);
+  --color-brand-mark: oklch(99.2% 0.008 88);
+  --color-ink: oklch(21% 0.025 170);
+  --color-ink-2: oklch(31% 0.02 170);
+  --color-muted: oklch(45% 0.024 165);
+  --color-rule: oklch(86.5% 0.022 140);
+  --color-rule-2: oklch(78% 0.025 145);
+
+  --color-accent: oklch(45% 0.125 160);
+  --color-accent-deep: oklch(38% 0.11 162);
+  --color-accent-text: oklch(38% 0.11 162);
+  --color-accent-soft: oklch(90% 0.05 160);
+  --color-accent-border: oklch(76% 0.065 160);
+  --color-accent-ink: oklch(99% 0.006 160);
+  --color-focus: oklch(42% 0.14 160);
+
+  --color-error: oklch(46% 0.17 27);
+  --color-error-bg: oklch(95% 0.03 27);
+  --color-success: oklch(40% 0.11 150);
+
+  --color-badge-open-bg: oklch(90% 0.05 160);
+  --color-badge-open-ink: oklch(34% 0.095 162);
+  --color-badge-open-border: oklch(77% 0.065 160);
+  --color-badge-info-bg: oklch(92% 0.03 205);
+  --color-badge-info-ink: oklch(34% 0.07 205);
+  --color-badge-late-bg: oklch(92.5% 0.016 140);
+  --color-badge-late-ink: oklch(33% 0.022 165);
+  --color-badge-closed-bg: oklch(94% 0.012 95);
+  --color-badge-closed-ink: oklch(41% 0.02 165);
+  --color-disabled-bg: oklch(92% 0.012 140);
+  --color-disabled-ink: oklch(46% 0.02 165);
+
+  --p-mon: oklch(85% 0.052 22);
+  --p-tue: oklch(87.5% 0.058 64);
+  --p-wed: oklch(91.5% 0.064 98);
+  --p-thu: oklch(86.5% 0.075 160);
+  --p-fri: oklch(87% 0.048 210);
+  --p-sat: oklch(84% 0.045 270);
+  --p-sun: oklch(84% 0.048 322);
+  --light: oklch(99.4% 0.016 84);
+  --glint: oklch(100% 0 0);
+
+  --font-display: "Schibsted Grotesk", ui-sans-serif, sans-serif;
+  --font-body: "Instrument Sans", ui-sans-serif, sans-serif;
+  --font-outlier: "DM Mono", ui-monospace, monospace;
+
+  --radius-card: 14px;
+  --radius-input: 10px;
+  --radius-pill: 999px;
+  --rule-hair: 1px;
+
+  --shadow-card: 0 1px 2px oklch(30% 0.03 165 / 0.06), 0 12px 28px -18px oklch(40% 0.08 165 / 0.16);
+  --shadow-lift: 0 1px 1px oklch(30% 0.03 165 / 0.10), 8px 18px 28px -14px oklch(36% 0.06 165 / 0.24), 18px 40px 60px -30px oklch(40% 0.08 165 / 0.22);
+  --tracking-display: -0.03em;
+  --display-weight: 700;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-paper: oklch(14% 0.012 170);
+  --color-paper-2: oklch(18% 0.016 170);
+  --color-paper-3: oklch(22% 0.022 168);
+  --color-surface: oklch(17% 0.014 170);
+  --color-brand-mark: oklch(96% 0.01 88);
+  --color-ink: oklch(95% 0.012 160);
+  --color-ink-2: oklch(86% 0.016 160);
+  --color-muted: oklch(74% 0.018 165);
+  --color-rule: oklch(30% 0.02 168);
+  --color-rule-2: oklch(38% 0.024 165);
+
+  --color-accent: oklch(45% 0.115 160);
+  --color-accent-deep: oklch(36% 0.095 162);
+  --color-accent-text: oklch(78% 0.11 160);
+  --color-accent-soft: oklch(23% 0.045 162);
+  --color-accent-border: oklch(40% 0.07 162);
+  --color-accent-ink: oklch(99% 0.006 160);
+  --color-focus: oklch(76% 0.12 160);
+
+  --color-error: oklch(82% 0.12 27);
+  --color-error-bg: oklch(23% 0.045 27);
+  --color-success: oklch(78% 0.11 150);
+
+  --color-badge-open-bg: oklch(23% 0.045 162);
+  --color-badge-open-ink: oklch(82% 0.095 160);
+  --color-badge-open-border: oklch(40% 0.075 162);
+  --color-badge-info-bg: oklch(23% 0.035 205);
+  --color-badge-info-ink: oklch(82% 0.075 205);
+  --color-badge-late-bg: oklch(24% 0.016 168);
+  --color-badge-late-ink: oklch(82% 0.018 165);
+  --color-badge-closed-bg: oklch(21% 0.014 170);
+  --color-badge-closed-ink: oklch(74% 0.018 165);
+  --color-disabled-bg: oklch(22% 0.014 168);
+  --color-disabled-ink: oklch(68% 0.018 165);
+
+  --light: oklch(24% 0.025 160);
+  --glint: oklch(34% 0.02 165);
+  --shadow-card: none;
+  --shadow-lift: none;
+}

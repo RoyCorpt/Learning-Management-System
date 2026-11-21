@@ -78,3 +78,32 @@ export function parseStudentRosterCsv(csv: string, allowedDomains: string[]): St
   if (entries.length === 0) throw new RosterCsvError('ROSTER_CSV_EMPTY', 'CSV tidak memuat baris roster yang valid.');
   return entries;
 }
+
+export type StudentRosterExportRow = {
+  nim: string;
+  fullName: string;
+  email: string;
+  registrationEligible: boolean;
+};
+
+function escapeRosterCsvCell(value: string): string {
+  const safeValue = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  if (/[;"\r\n]/.test(safeValue) || safeValue.trim() !== safeValue) {
+    return `"${safeValue.replace(/"/g, '""')}"`;
+  }
+  return safeValue;
+}
+
+export function formatStudentRosterCsv(rows: StudentRosterExportRow[]): string {
+  const header = HEADER_NAMES.join(';');
+  const lines = rows.map((row) =>
+    [
+      escapeRosterCsvCell(row.nim),
+      escapeRosterCsvCell(row.fullName),
+      escapeRosterCsvCell(row.email),
+      row.registrationEligible ? 'layak' : 'tidak_layak',
+    ].join(';'),
+  );
+  return `\uFEFF${[header, ...lines].join('\r\n')}\r\n`;
+}
+

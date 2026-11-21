@@ -47,8 +47,17 @@ export const notificationTypeEnum = pgEnum('NotificationType', [
   'QUIZ_NEW',
   'ANNOUNCEMENT_NEW',
   'GRADE_PUBLISHED',
+  'MATERIAL_NEW',
 ]);
 export type NotificationType = (typeof notificationTypeEnum.enumValues)[number];
+
+export const fcmJobStatusEnum = pgEnum('FcmJobStatus', [
+  'PENDING',
+  'PROCESSING',
+  'COMPLETED',
+  'FAILED',
+]);
+export type FcmJobStatus = (typeof fcmJobStatusEnum.enumValues)[number];
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -400,6 +409,47 @@ export const notifications = pgTable(
   (table) => [index('notifications_user_id_is_read_created_at_idx').on(table.userId, table.isRead, table.createdAt)],
 );
 
+export const fcmDeviceTokens = pgTable(
+  'fcm_device_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token: text('token').notNull().unique(),
+    userAgent: varchar('user_agent', { length: 300 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('fcm_device_tokens_user_id_idx').on(table.userId)],
+);
+
+export const fcmDispatchJobs = pgTable(
+  'fcm_dispatch_jobs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    classId: uuid('class_id')
+      .notNull()
+      .references(() => classes.id, { onDelete: 'cascade' }),
+    notificationType: notificationTypeEnum('notification_type').notNull(),
+    title: varchar('title', { length: 200 }).notNull(),
+    body: text('body').notNull(),
+    targetUrl: varchar('target_url', { length: 500 }).notNull(),
+    recipientUserIds: jsonb('recipient_user_ids').$type<string[]>().default([]).notNull(),
+    status: fcmJobStatusEnum('status').default('PENDING').notNull(),
+    attempts: integer('attempts').default(0).notNull(),
+    maxAttempts: integer('max_attempts').default(3).notNull(),
+    sentCount: integer('sent_count').default(0).notNull(),
+    failedCount: integer('failed_count').default(0).notNull(),
+    lastError: text('last_error'),
+    nextRunAt: timestamp('next_run_at', { withTimezone: true }).defaultNow().notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('fcm_dispatch_jobs_status_next_run_at_idx').on(table.status, table.nextRunAt, table.createdAt)],
+);
+
 export const usersRelations = relations(users, ({ many, one }) => ({
   sessions: many(sessions),
   ownedClasses: many(classes),
@@ -410,6 +460,7 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   forumTopics: many(forumTopics),
   forumReplies: many(forumReplies),
   notifications: many(notifications),
+  fcmDeviceTokens: many(fcmDeviceTokens),
   rosterRegistration: one(studentRoster, {
     fields: [users.id],
     references: [studentRoster.registeredUserId],
@@ -429,6 +480,7 @@ export const classesRelations = relations(classes, ({ one, many }) => ({
   announcements: many(announcements),
   forumTopics: many(forumTopics),
   notifications: many(notifications),
+  fcmDispatchJobs: many(fcmDispatchJobs),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -579,6 +631,20 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
   }),
   class: one(classes, {
     fields: [notifications.classId],
+    references: [classes.id],
+  }),
+}));
+
+export const fcmDeviceTokensRelations = relations(fcmDeviceTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [fcmDeviceTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+export const fcmDispatchJobsRelations = relations(fcmDispatchJobs, ({ one }) => ({
+  class: one(classes, {
+    fields: [fcmDispatchJobs.classId],
     references: [classes.id],
   }),
 }));

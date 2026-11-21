@@ -3,6 +3,9 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod';
 import { db } from '../../../src/db/index.js';
 import {
+  classes,
+  fcmDeviceTokens,
+  fcmDispatchJobs,
   memberships,
   notifications,
   users,
@@ -10,6 +13,8 @@ import {
   type Role,
 } from '../../../src/db/schema.js';
 import { authenticate, csrf } from './auth.js';
+import { env } from './config/env.js';
+import { enqueueFcmDispatchJob } from './fcm-jobs.js';
 
 type Principal = { id: string; role: Role };
 type NotificationRequest = Request & { auth?: Principal };
@@ -27,7 +32,8 @@ export async function createClassNotifications(
   classId: string,
   payload: ClassNotificationPayload,
   targetUserIds?: string[],
-) {
+  options?: { enqueueFcm?: boolean },
+): Promise<string[]> {
   let recipientIds: string[];
   if (targetUserIds && targetUserIds.length > 0) {
     const uniqueIds = Array.from(new Set(targetUserIds));
@@ -48,11 +54,17 @@ export async function createClassNotifications(
       .select({ userId: memberships.userId })
       .from(memberships)
       .innerJoin(users, eq(memberships.userId, users.id))
-      .where(and(eq(memberships.classId, classId), eq(users.status, 'ACTIVE')));
+      .where(
+        and(
+          eq(memberships.classId, classId),
+          eq(users.status, 'ACTIVE'),
+          eq(users.role, 'MAHASISWA'),
+        ),
+      );
     recipientIds = activeMembers.map((m) => m.userId);
   }
 
-  if (recipientIds.length === 0) return;
+  if (recipientIds.length === 0) return [];
 
   await tx.insert(notifications).values(
     recipientIds.map((userId) => ({
@@ -65,10 +77,30 @@ export async function createClassNotifications(
       isRead: false,
     })),
   );
+
+  const shouldEnqueueFcm =
+    options?.enqueueFcm ??
+    (payload.type === 'ASSIGNMENT_NEW' || payload.type === 'MATERIAL_NEW');
+
+  if (shouldEnqueueFcm) {
+    await enqueueFcmDispatchJob(tx, {
+      classId,
+      type: payload.type,
+      title: payload.title,
+      body: payload.message,
+      targetUrl: payload.targetUrl,
+      recipientUserIds: recipientIds,
+    });
+  }
+
+  return recipientIds;
 }
 
 const router = Router();
 const uuid = z.string().uuid();
+const fcmTokenSchema = z.object({
+  token: z.string().trim().min(20).max(4096),
+}).strict();
 
 router.use(authenticate);
 router.use((req, res, next) => {
@@ -131,6 +163,115 @@ router.patch('/:id/read', async (req: NotificationRequest, res: Response, next: 
     }
 
     return res.json({ notification: updated[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/push-config', async (req: NotificationRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.auth!.id;
+    const countRows = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(fcmDeviceTokens)
+      .where(eq(fcmDeviceTokens.userId, userId));
+
+    const tokenCount = countRows[0]?.count ?? 0;
+    return res.json({
+      vapidKey: env.FIREBASE_VAPID_KEY || null,
+      hasRegisteredToken: tokenCount > 0,
+      tokenCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/fcm-token', async (req: NotificationRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.auth!.id;
+    const { token } = fcmTokenSchema.parse(req.body);
+    const userAgent = String(req.get('user-agent') ?? '').slice(0, 300) || null;
+    const now = new Date();
+
+    await db
+      .insert(fcmDeviceTokens)
+      .values({
+        userId,
+        token,
+        userAgent,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: fcmDeviceTokens.token,
+        set: {
+          userId,
+          userAgent,
+          updatedAt: now,
+        },
+      });
+
+    return res.status(201).json({ registered: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/fcm-token', async (req: NotificationRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.auth!.id;
+    const { token } = fcmTokenSchema.parse(req.body);
+    await db
+      .delete(fcmDeviceTokens)
+      .where(and(eq(fcmDeviceTokens.userId, userId), eq(fcmDeviceTokens.token, token)));
+
+    return res.json({ removed: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/fcm-jobs', async (req: NotificationRequest, res: Response, next: NextFunction) => {
+  try {
+    const principal = req.auth!;
+    if (principal.role === 'MAHASISWA') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Akses tidak diizinkan.' },
+      });
+    }
+
+    const rows =
+      principal.role === 'ADMIN'
+        ? await db
+            .select()
+            .from(fcmDispatchJobs)
+            .orderBy(desc(fcmDispatchJobs.createdAt))
+            .limit(20)
+        : await db
+            .select({
+              id: fcmDispatchJobs.id,
+              classId: fcmDispatchJobs.classId,
+              notificationType: fcmDispatchJobs.notificationType,
+              title: fcmDispatchJobs.title,
+              body: fcmDispatchJobs.body,
+              targetUrl: fcmDispatchJobs.targetUrl,
+              status: fcmDispatchJobs.status,
+              attempts: fcmDispatchJobs.attempts,
+              maxAttempts: fcmDispatchJobs.maxAttempts,
+              sentCount: fcmDispatchJobs.sentCount,
+              failedCount: fcmDispatchJobs.failedCount,
+              lastError: fcmDispatchJobs.lastError,
+              processedAt: fcmDispatchJobs.processedAt,
+              createdAt: fcmDispatchJobs.createdAt,
+            })
+            .from(fcmDispatchJobs)
+            .innerJoin(classes, eq(fcmDispatchJobs.classId, classes.id))
+            .where(eq(classes.ownerId, principal.id))
+            .orderBy(desc(fcmDispatchJobs.createdAt))
+            .limit(20);
+
+    return res.json({ jobs: rows });
   } catch (error) {
     next(error);
   }

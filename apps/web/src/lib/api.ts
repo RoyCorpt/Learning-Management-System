@@ -181,7 +181,7 @@ export type NotificationItem = {
   id: string;
   userId: string;
   classId: string | null;
-  type: 'ASSIGNMENT_NEW' | 'QUIZ_NEW' | 'ANNOUNCEMENT_NEW' | 'GRADE_PUBLISHED';
+  type: 'ASSIGNMENT_NEW' | 'QUIZ_NEW' | 'ANNOUNCEMENT_NEW' | 'GRADE_PUBLISHED' | 'MATERIAL_NEW';
   title: string;
   message: string;
   targetUrl: string;

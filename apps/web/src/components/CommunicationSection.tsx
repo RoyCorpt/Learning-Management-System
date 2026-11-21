@@ -282,7 +282,7 @@ export function ForumPanel({
                       <span
                         className={`workspace-badge ${topic.authorRole === 'DOSEN' ? 'open' : ''}`}
                       >
-                        {topic.authorName} · {roleLabel(topic.authorRole)}
+                        {topic.authorName}, {roleLabel(topic.authorRole)}
                       </span>
                       <span className="workspace-meta-time">
                         {new Date(topic.createdAt).toLocaleString('id-ID')}
@@ -354,15 +354,15 @@ export function ForumPanel({
                           2000;
 
                         return (
-                          <div key={reply.id} className="forum-reply-card">
+                          <div key={reply.id} className="forum-reply-item">
                             <div className="workspace-item-header">
-                              <div className="workspace-badges" style={{ marginTop: 0 }}>
+                              <div className="workspace-badges workspace-badges--tight">
                                 <span
                                   className={`workspace-badge ${
                                     reply.authorRole === 'DOSEN' ? 'open' : ''
                                   }`}
                                 >
-                                  {reply.authorName} · {roleLabel(reply.authorRole)}
+                                  {reply.authorName}, {roleLabel(reply.authorRole)}
                                 </span>
                                 <span className="workspace-meta-time">
                                   {new Date(reply.createdAt).toLocaleString('id-ID')}

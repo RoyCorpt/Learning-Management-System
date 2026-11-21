@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Algorithm, hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
-import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
@@ -16,7 +16,7 @@ import {
 import { getOrCreateUser } from '../../../src/db/users.js';
 import { env } from './config/env.js';
 import { adminAuth } from './lib/firebase-admin.js';
-import { parseStudentRosterCsv, RosterCsvError } from './roster.js';
+import { formatStudentRosterCsv, parseStudentRosterCsv, RosterCsvError } from './roster.js';
 
 const SESSION_COOKIE = 'lms_session';
 const CSRF_COOKIE = 'lms_csrf';
@@ -500,6 +500,35 @@ router.post('/admin/roster/import', csrf, async (req: AuthRequest, res, next) =>
       return { rows: entries.length, created, updated };
     });
     res.json({ status: 'ok', summary });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/admin/roster/export', async (req: AuthRequest, res, next) => {
+  try {
+    if (!req.auth) return res.status(401).end();
+    const rows = await db
+      .select({
+        nim: studentRoster.nim,
+        fullName: studentRoster.fullName,
+        email: studentRoster.email,
+        registrationEligible: studentRoster.registrationEligible,
+      })
+      .from(studentRoster)
+      .orderBy(asc(studentRoster.nim), asc(studentRoster.createdAt));
+
+    await db.insert(auditEvents).values({
+      actorId: req.auth.id,
+      action: 'ADMIN_ROSTER_EXPORTED',
+      details: { rows: rows.length },
+    });
+
+    const csv = formatStudentRosterCsv(rows);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="roster-mahasiswa-sintaks.csv"');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(csv);
   } catch (error) {
     next(error);
   }

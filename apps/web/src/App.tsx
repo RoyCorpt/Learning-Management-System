@@ -22,6 +22,7 @@ import { QuizzesSection } from './components/QuizzesSection.tsx';
 import { GradesSection } from './components/GradesSection.tsx';
 import { AnnouncementsPanel, ForumPanel } from './components/CommunicationSection.tsx';
 import { NotificationBell, ProfileBanner, RoleSummaryDashboard } from './components/DashboardAndProfile.tsx';
+import { ExpandableAnswerText } from './components/ExpandableAnswerText.tsx';
 import './classes.css';
 
 type WorkspaceTab = 'materials' | 'assignments' | 'quizzes' | 'announcements' | 'forum' | 'grades';
@@ -53,7 +54,33 @@ export default function App() {
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [inWorkspace, setInWorkspace] = useState(false);
   const [homeSignal, setHomeSignal] = useState(0);
+  const [dosenView, setDosenView] = useState<'classes' | 'summary'>('classes');
+  const dosenTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [logoFailed, setLogoFailed] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = window.localStorage.getItem('sintaks-theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    root.classList.toggle('dark', theme === 'dark');
+    try {
+      window.localStorage.setItem('sintaks-theme', theme);
+    } catch {
+      // ignore storage errors
+    }
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', theme === 'dark' ? '#131a17' : '#277954');
+    }
+  }, [theme]);
 
   useEffect(() => {
     fetch(`${API}/auth/me`, { credentials: 'include' })
@@ -112,6 +139,7 @@ export default function App() {
       setUser(null);
       setNavTarget(null);
       setInWorkspace(false);
+      setDosenView('classes');
       setMessage('Anda telah keluar.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Gagal keluar.');
@@ -121,6 +149,9 @@ export default function App() {
   function handleNavigate(targetUrl: string) {
     const parsed = parseTargetUrl(targetUrl);
     if (parsed) {
+      if (user?.role === 'DOSEN') {
+        setDosenView('classes');
+      }
       setNavTarget(parsed);
     }
   }
@@ -128,6 +159,24 @@ export default function App() {
   function returnToDashboard() {
     setNavTarget(null);
     setHomeSignal((n) => n + 1);
+  }
+
+  function moveDosenTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    const views: Array<'classes' | 'summary'> = ['classes', 'summary'];
+    const next =
+      event.key === 'ArrowRight'
+        ? (index + 1) % views.length
+        : event.key === 'ArrowLeft'
+          ? (index + views.length - 1) % views.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? views.length - 1
+              : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    setDosenView(views[next]!);
+    dosenTabRefs.current[next]?.focus();
   }
 
   return (
@@ -159,11 +208,51 @@ export default function App() {
             </span>
             <span className="brand-text">
               <span className="brand-name">SINTAKS</span>
-              <span className="brand-sub">PORTAL PEMBELAJARAN</span>
+              <span className="brand-sub">Portal Pembelajaran</span>
             </span>
           </a>
 
           <div className="topbar-right">
+            <button
+              type="button"
+              className="theme-toggle-btn"
+              onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+              aria-pressed={theme === 'dark'}
+              aria-label={theme === 'dark' ? 'Aktifkan mode terang' : 'Aktifkan mode gelap'}
+              title={theme === 'dark' ? 'Ganti ke mode terang' : 'Ganti ke mode gelap'}
+            >
+              {theme === 'dark' ? (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                </svg>
+              ) : (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
+              <span className="theme-toggle-label">{theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}</span>
+            </button>
             {user && !user.mustChangePassword && <NotificationBell onNavigate={handleNavigate} />}
             {user && inWorkspace && (
               <button
@@ -183,24 +272,20 @@ export default function App() {
         {!user ? (
           <section className="auth-layout">
             <div className="welcome">
-              <div className="eyebrow">
-                <span /> RUANG BELAJAR SINTAKS
-              </div>
               <h1>
                 Belajar dengan
                 <br />
-                <em>arah dan tujuan.</em>
+                arah dan tujuan.
               </h1>
               <p>
                 Masuk untuk melanjutkan aktivitas pembelajaran, tugas, kuis daring, dan diskusi kelas
                 Anda di platform akademik SINTAKS.
               </p>
               <div className="welcome-rule" />
-              <span className="welcome-caption">SATU RUANG UNTUK BERTUMBUH</span>
+              <p className="welcome-statement">Satu ruang akademik untuk bertumbuh.</p>
             </div>
 
             <section className="auth-card" aria-labelledby="form-title">
-              <div className="card-kicker">AKUN SINTAKS</div>
               <div className="form-tabs">
                 <button
                   type="button"
@@ -264,8 +349,7 @@ export default function App() {
                 <>
                   <button
                     type="button"
-                    className="button secondary"
-                    style={{ marginTop: 12 }}
+                    className="button secondary auth-google-btn"
                     disabled={busy}
                     onClick={() => void signInWithGoogle()}
                   >
@@ -296,26 +380,77 @@ export default function App() {
               <ChangePassword email={user.email} onDone={(u) => setUser(u)} />
             ) : (
               <>
-                {!inWorkspace && (
-                  <RoleSummaryDashboard
-                    role={user.role}
-                    userFullName={user.fullName}
-                    refreshKey={summaryRefreshKey}
-                    onNavigate={handleNavigate}
-                    onOpenClass={(classId) => handleNavigate(`/classes/${classId}/materials`)}
-                    onAccountUpdated={() => setAdminRefreshKey((k) => k + 1)}
-                  />
+                {!inWorkspace && user.role === 'DOSEN' && (
+                  <div className="dosen-view-tabs" role="tablist" aria-label="Halaman dasbor dosen">
+                    {(
+                      [
+                        { id: 'classes', label: 'Kelola Kelas' },
+                        { id: 'summary', label: 'Ringkasan Kelas' },
+                      ] as const
+                    ).map((item, index) => (
+                      <button
+                        key={item.id}
+                        ref={(el) => {
+                          dosenTabRefs.current[index] = el;
+                        }}
+                        id={`dosen-tab-${item.id}`}
+                        type="button"
+                        role="tab"
+                        aria-selected={dosenView === item.id}
+                        aria-controls={`dosen-tabpanel-${item.id}`}
+                        tabIndex={dosenView === item.id ? 0 : -1}
+                        className="dosen-view-tab"
+                        onClick={() => setDosenView(item.id)}
+                        onKeyDown={(event) => moveDosenTab(event, index)}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {!inWorkspace && (user.role !== 'DOSEN' || dosenView === 'summary') && (
+                  <div
+                    id={user.role === 'DOSEN' ? 'dosen-tabpanel-summary' : undefined}
+                    role={user.role === 'DOSEN' ? 'tabpanel' : undefined}
+                    aria-labelledby={user.role === 'DOSEN' ? 'dosen-tab-summary' : undefined}
+                    tabIndex={user.role === 'DOSEN' ? 0 : undefined}
+                  >
+                    <RoleSummaryDashboard
+                      role={user.role}
+                      userFullName={user.fullName}
+                      refreshKey={summaryRefreshKey}
+                      onNavigate={handleNavigate}
+                      onOpenClass={(classId) => handleNavigate(`/classes/${classId}/materials`)}
+                      onManageClasses={
+                        user.role === 'DOSEN' ? () => setDosenView('classes') : undefined
+                      }
+                      onAccountUpdated={() => setAdminRefreshKey((k) => k + 1)}
+                    />
+                  </div>
                 )}
 
                 {(user.role === 'DOSEN' || user.role === 'MAHASISWA') && (
-                  <ClassManagement
-                    currentUser={user}
-                    navTarget={navTarget}
-                    homeSignal={homeSignal}
-                    onClearNavTarget={() => setNavTarget(null)}
-                    onWorkspaceActiveChange={setInWorkspace}
-                    onWorkspaceChanged={() => setSummaryRefreshKey((k) => k + 1)}
-                  />
+                  <div
+                    id={user.role === 'DOSEN' && !inWorkspace ? 'dosen-tabpanel-classes' : undefined}
+                    role={user.role === 'DOSEN' && !inWorkspace ? 'tabpanel' : undefined}
+                    aria-labelledby={
+                      user.role === 'DOSEN' && !inWorkspace ? 'dosen-tab-classes' : undefined
+                    }
+                    hidden={user.role === 'DOSEN' && !inWorkspace && dosenView !== 'classes'}
+                  >
+                    <ClassManagement
+                      currentUser={user}
+                      navTarget={navTarget}
+                      homeSignal={homeSignal}
+                      onClearNavTarget={() => setNavTarget(null)}
+                      onWorkspaceActiveChange={setInWorkspace}
+                      onWorkspaceChanged={() => setSummaryRefreshKey((k) => k + 1)}
+                      onOpenSummary={
+                        user.role === 'DOSEN' ? () => setDosenView('summary') : undefined
+                      }
+                    />
+                  </div>
                 )}
 
                 {user.role === 'ADMIN' && (
@@ -331,7 +466,11 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        <span>SINTAKS · Sistem pembelajaran kampus · © 2026</span>
+        <div className="footer-meta">
+          <span className="footer-brand">SINTAKS</span>
+          <span>Sistem pembelajaran kampus</span>
+        </div>
+        <span className="num">© 2026</span>
       </footer>
     </div>
   );
@@ -344,6 +483,7 @@ function ClassManagement({
   onClearNavTarget,
   onWorkspaceActiveChange,
   onWorkspaceChanged,
+  onOpenSummary,
 }: {
   currentUser: User;
   navTarget: NavigationTarget | null;
@@ -351,6 +491,7 @@ function ClassManagement({
   onClearNavTarget: () => void;
   onWorkspaceActiveChange: (active: boolean) => void;
   onWorkspaceChanged: () => void;
+  onOpenSummary?: () => void;
 }) {
   const role = currentUser.role as 'DOSEN' | 'MAHASISWA';
   const [classes, setClasses] = useState<ClassSummary[]>([]);
@@ -589,17 +730,32 @@ function ClassManagement({
     <section className="class-panel" aria-labelledby="classes-title">
       <div className="class-panel-heading">
         <div>
-          <p className="section-kicker">RUANG KELAS</p>
           <h3 id="classes-title">{role === 'DOSEN' ? 'Kelas yang Anda kelola' : 'Kelas yang Diikuti'}</h3>
+          <p className="section-deck">
+            {role === 'DOSEN'
+              ? 'Kelola ruang kelas, kode undangan mahasiswa, dan materi perkuliahan aktif.'
+              : 'Akses ruang kelas, materi kuliah, tugas, kuis, dan rekap nilai Anda.'}
+          </p>
         </div>
-        <button
-          type="button"
-          className="button secondary inline-btn"
-          onClick={() => void load()}
-          disabled={loading}
-        >
-          Muat ulang
-        </button>
+        <div className="workspace-item-actions">
+          {role === 'DOSEN' && onOpenSummary && (
+            <button
+              type="button"
+              className="button secondary inline-btn"
+              onClick={onOpenSummary}
+            >
+              Ringkasan kelas
+            </button>
+          )}
+          <button
+            type="button"
+            className="button secondary inline-btn"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            Muat ulang
+          </button>
+        </div>
       </div>
 
       {role === 'DOSEN' ? (
@@ -662,7 +818,7 @@ function ClassManagement({
             onChange={(event) => setSortBy(event.target.value as 'newest' | 'name' | 'status')}
           >
             <option value="newest">Terbaru dibuat</option>
-            <option value="name">Nama (A–Z)</option>
+            <option value="name">Nama (A hingga Z)</option>
             <option value="status">Status (Terbuka dulu)</option>
           </select>
         </label>
@@ -700,7 +856,9 @@ function ClassManagement({
           {visibleClasses.map((item) => (
             <article className="class-card" key={item.id}>
               <div className="class-card-top">
-                <span className="section-kicker">KELAS SINTAKS</span>
+                <time className="class-date" dateTime={item.createdAt}>
+                  Dibuat {new Date(item.createdAt).toLocaleDateString('id-ID')}
+                </time>
                 <span className={`class-status ${item.status.toLowerCase()}`}>
                   {item.status === 'OPEN' ? 'Terbuka' : 'Ditutup'}
                 </span>
@@ -710,10 +868,6 @@ function ClassManagement({
                 <h4>{item.name}</h4>
                 <p className="class-card-desc">{item.description || 'Tidak ada deskripsi.'}</p>
               </div>
-
-              <p className="class-date">
-                Dibuat {new Date(item.createdAt).toLocaleDateString('id-ID')}
-              </p>
 
               <div className="class-actions">
                 <button
@@ -785,7 +939,7 @@ function ClassManagement({
 
               {issuedCode?.classId === item.id && (
                 <div className="invitation-code">
-                  <span>Kode undangan · tampil satu kali</span>
+                  <span>Kode undangan (tampil satu kali)</span>
                   <code>{issuedCode.code}</code>
                 </div>
               )}
@@ -1308,7 +1462,6 @@ function ClassWorkspace({
 
         <div className="workspace-header">
           <div>
-            <p className="section-kicker">RUANG KELAS · SINTAKS</p>
             <h3 id="workspace-title">{classItem.name}</h3>
             <p className="workspace-description">
               {classItem.description || 'Tidak ada deskripsi kelas.'}
@@ -1421,7 +1574,7 @@ function ClassWorkspace({
                   )}
                   {materialType === 'FILE' && (
                     <label>
-                      Pilih berkas (PDF, TXT, MD, CSV, PNG, JPG, DOCX, ZIP · maks. 4 MB)
+                      Pilih berkas (PDF, TXT, MD, CSV, PNG, JPG, DOCX, ZIP, maks. 4 MB)
                       <input
                         name="attachment"
                         type="file"
@@ -1638,9 +1791,9 @@ function ClassWorkspace({
 
                             {mySub && (
                               <div className="workspace-receipt">
-                                <div className="workspace-badges" style={{ marginTop: 0 }}>
-                                  <span className="workspace-badge open">
-                                    Terkirim · Versi ke-{mySub.version}
+                                <div className="workspace-badges workspace-badges--tight">
+                                  <span className="stamp-seal">
+                                    Terkirim, Versi ke-{mySub.version}
                                   </span>
                                   <span className={`workspace-badge ${mySub.isLate ? 'late' : 'open'}`}>
                                     {mySub.isLate ? 'Terlambat' : 'Tepat waktu'}
@@ -1648,11 +1801,11 @@ function ClassWorkspace({
                                   {mySub.gradeStatus === 'PUBLISHED' &&
                                     mySub.score !== null &&
                                     mySub.score !== undefined && (
-                                      <span className="workspace-badge open">Nilai: {mySub.score}</span>
+                                      <span className="workspace-badge open num">Nilai: {mySub.score}</span>
                                     )}
-                                  <span className="workspace-meta-time">
+                                  <time className="workspace-meta-time" dateTime={mySub.submittedAt}>
                                     {new Date(mySub.submittedAt).toLocaleString('id-ID')}
-                                  </span>
+                                  </time>
                                 </div>
                                 {mySub.gradeStatus === 'PUBLISHED' && mySub.feedback && (
                                   <p className="workspace-body-text">
@@ -1717,7 +1870,7 @@ function ClassWorkspace({
                                 </label>
                                 <label>
                                   Lampiran berkas{' '}
-                                  <span className="optional">(PDF, DOCX, ZIP, PNG, JPG · maks. 4 MB)</span>
+                                  <span className="optional">(PDF, DOCX, ZIP, PNG, JPG, maks. 4 MB)</span>
                                   <input
                                     name="attachment"
                                     type="file"
@@ -1735,7 +1888,7 @@ function ClassWorkspace({
                               <div className="workspace-submit-form">
                                 <p className="workspace-muted">
                                   {classItem.status === 'CLOSED'
-                                    ? 'Kelas ditutup — pengumpulan tugas tidak lagi diterima.'
+                                    ? 'Kelas ditutup, pengumpulan tugas tidak lagi diterima.'
                                     : assignment.status === 'CLOSED'
                                       ? 'Tugas telah ditutup oleh dosen.'
                                       : 'Batas waktu pengumpulan telah berakhir.'}
@@ -1796,58 +1949,67 @@ function ClassWorkspace({
                                           </td>
                                           <td>
                                             {entry.submission ? (
-                                              <span
-                                                className={`workspace-badge ${
-                                                  entry.submission.isLate ? 'late' : 'open'
-                                                }`}
-                                              >
-                                                Terkirim (v{entry.submission.version})
-                                                {entry.submission.isLate ? ' · Terlambat' : ''}
-                                              </span>
-                                            ) : (
-                                              <span className="workspace-badge closed">
-                                                Belum mengumpulkan
-                                              </span>
-                                            )}
-                                          </td>
-                                          <td>
-                                            {entry.submission
-                                              ? new Date(entry.submission.submittedAt).toLocaleString(
-                                                  'id-ID',
-                                                )
-                                              : '—'}
-                                          </td>
-                                          <td>
-                                            {entry.submission ? (
-                                              <div className="workspace-roster-answer">
-                                                {entry.submission.textAnswer && (
-                                                  <p>{entry.submission.textAnswer}</p>
-                                                )}
-                                                {entry.submission.attachmentName && (
-                                                  <button
-                                                    type="button"
-                                                    className="text-button"
-                                                    disabled={busy}
-                                                    onClick={() =>
-                                                      void handleDownload(
-                                                        `/api/classes/${classItem.id}/assignments/${assignment.id}/submissions/${entry.submission!.id}/download`,
-                                                        entry.submission!.attachmentName!,
-                                                      )
-                                                    }
-                                                  >
-                                                    Unduh {entry.submission.attachmentName}
-                                                  </button>
-                                                )}
-                                              </div>
-                                            ) : (
-                                              '—'
-                                            )}
-                                          </td>
-                                          <td>
-                                            {entry.submission?.score !== null &&
-                                            entry.submission?.score !== undefined ? (
-                                              <div className="gradebook-cell">
-                                                <strong>{entry.submission.score}</strong>
+                                                <span
+                                                  className={`workspace-badge ${
+                                                    entry.submission.isLate ? 'late' : 'open'
+                                                  }`}
+                                                >
+                                                  Terkirim (v{entry.submission.version})
+                                                  {entry.submission.isLate ? ', Terlambat' : ''}
+                                                </span>
+                                              ) : (
+                                                <span className="workspace-badge closed">
+                                                  Belum mengumpulkan
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td>
+                                              {entry.submission ? (
+                                                <time dateTime={entry.submission.submittedAt}>
+                                                  {new Date(entry.submission.submittedAt).toLocaleString(
+                                                    'id-ID',
+                                                  )}
+                                                </time>
+                                              ) : (
+                                                '-'
+                                              )}
+                                            </td>
+                                            <td>
+                                              {entry.submission ? (
+                                                <div className="workspace-roster-answer">
+                                                  {entry.submission.textAnswer && (
+                                                    <ExpandableAnswerText
+                                                      text={entry.submission.textAnswer}
+                                                      className="workspace-roster-answer-text"
+                                                      studentName={entry.student.fullName}
+                                                      contextLabel={assignment.title}
+                                                    />
+                                                  )}
+                                                  {entry.submission.attachmentName && (
+                                                    <button
+                                                      type="button"
+                                                      className="text-button"
+                                                      disabled={busy}
+                                                      onClick={() =>
+                                                        void handleDownload(
+                                                          `/api/classes/${classItem.id}/assignments/${assignment.id}/submissions/${entry.submission!.id}/download`,
+                                                          entry.submission!.attachmentName!,
+                                                        )
+                                                      }
+                                                    >
+                                                      Unduh {entry.submission.attachmentName}
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              ) : (
+                                                '-'
+                                              )}
+                                            </td>
+                                            <td>
+                                              {entry.submission?.score !== null &&
+                                              entry.submission?.score !== undefined ? (
+                                                <div className="gradebook-cell">
+                                                  <strong className="num">{entry.submission.score}</strong>
                                                 <span
                                                   className={`workspace-badge ${
                                                     entry.submission.gradeStatus === 'PUBLISHED'
@@ -1891,16 +2053,19 @@ function ClassWorkspace({
 
                               {gradingTarget && gradingTarget.assignmentId === assignment.id && (
                                 <div key={gradingTarget.submission.id} className="grading-split-grid">
-                                  <div className="grading-preview-card">
+                                  <div className="grading-preview-pane">
                                     <div className="grading-preview-bar">
                                       <div>
                                         <strong>{gradingTarget.studentName}</strong>
                                         <div className="workspace-sub-email">
-                                          {gradingTarget.studentEmail} · Versi ke-
-                                          {gradingTarget.submission.version} ·{' '}
-                                          {new Date(
-                                            gradingTarget.submission.submittedAt,
-                                          ).toLocaleString('id-ID')}
+                                          <span>{gradingTarget.studentEmail}</span>{' '}
+                                          <span className="receipt-version">
+                                            (Versi ke-{gradingTarget.submission.version},{' '}
+                                            {new Date(
+                                              gradingTarget.submission.submittedAt,
+                                            ).toLocaleString('id-ID')}
+                                            )
+                                          </span>
                                         </div>
                                       </div>
                                       <span
@@ -1914,11 +2079,14 @@ function ClassWorkspace({
                                       </span>
                                     </div>
                                     <div className="grading-preview-body">
-                                      <p className="section-kicker">PRATINJAU JAWABAN</p>
+                                      <h6 className="pane-section-title">Pratinjau Jawaban</h6>
                                       {gradingTarget.submission.textAnswer ? (
-                                        <p className="workspace-body-text">
-                                          {gradingTarget.submission.textAnswer}
-                                        </p>
+                                        <ExpandableAnswerText
+                                          text={gradingTarget.submission.textAnswer}
+                                          className="workspace-roster-answer-text"
+                                          studentName={gradingTarget.studentName}
+                                          contextLabel={assignment.title}
+                                        />
                                       ) : (
                                         <p className="workspace-muted">
                                           Tidak ada jawaban teks terlampir.
@@ -2005,7 +2173,7 @@ function ClassWorkspace({
                                     </div>
 
                                     <label className="field-label">
-                                      Skor (0–100)
+                                      Skor (0 hingga 100)
                                       <div className="grading-score-row">
                                         <input
                                           className="sintaks-input"
@@ -2266,6 +2434,19 @@ function AccountManagement({
     }
   }
 
+  async function exportRoster() {
+    setBusy(true);
+    setMessage('');
+    try {
+      await downloadFile('/auth/admin/roster/export', 'roster-mahasiswa-sintaks.csv');
+      setMessage('Cadangan CSV roster mahasiswa berhasil diunduh.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Gagal mengekspor roster CSV.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function update(id: string, path: 'status' | 'role', value: string) {
     try {
       const result = await request(`/auth/admin/users/${id}/${path}`, { [path]: value }, 'PATCH');
@@ -2285,8 +2466,10 @@ function AccountManagement({
     <section className="admin-panel" aria-labelledby="admin-title">
       <div className="admin-panel-heading">
         <div>
-          <p className="section-kicker">ADMINISTRASI</p>
           <h3 id="admin-title">Kelola akun kampus</h3>
+          <p className="section-deck">
+            Buat akun dosen, impor atau cadangkan roster mahasiswa CSV, dan kelola status akses pengguna.
+          </p>
         </div>
         <span className="admin-account-count">{users.length} akun</span>
       </div>
@@ -2340,16 +2523,29 @@ function AccountManagement({
         {section === 'roster' && (
           <form className="admin-section-form" onSubmit={importRoster}>
             <div>
-              <h4>Impor roster Mahasiswa</h4>
-              <p>Gunakan CSV roster kampus dengan kolom NIM, nama, email, dan status kelayakan.</p>
+              <h4>Impor &amp; cadangan roster Mahasiswa</h4>
+              <p>
+                Gunakan CSV roster kampus dengan kolom NIM, nama, email, dan status kelayakan, atau
+                ekspor daftar roster saat ini sebagai cadangan luring.
+              </p>
             </div>
             <label>
               File roster
               <input name="roster" type="file" accept=".csv,text/csv" required />
             </label>
-            <button className="button primary" disabled={busy}>
-              {busy ? 'Mengimpor…' : 'Impor roster'}
-            </button>
+            <div className="admin-form-actions">
+              <button className="button primary" disabled={busy}>
+                {busy ? 'Memproses…' : 'Impor roster'}
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => void exportRoster()}
+                disabled={busy}
+              >
+                Unduh CSV roster
+              </button>
+            </div>
           </form>
         )}
         {section === 'accounts' && (

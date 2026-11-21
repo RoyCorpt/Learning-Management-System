@@ -17,6 +17,7 @@ import {
   type Role,
 } from '../../../src/db/schema.js';
 import { csrf, requireRole } from './auth.js';
+import { triggerFcmJobWorker } from './fcm-jobs.js';
 import { createClassNotifications } from './notifications-service.js';
 
 type Principal = { id: string; role: Role };
@@ -360,7 +361,7 @@ router.post('/materials', requireRole('DOSEN'), async (req: LearningRequest, res
   try {
     const user = actor(req);
     const classId = uuid.parse(req.params.classId);
-    await assertClassOwner(classId, user);
+    const classRecord = await assertClassOwner(classId, user);
     const input = createMaterialSchema.parse(req.body);
 
     if (input.topicId) {
@@ -409,8 +410,26 @@ router.post('/materials', requireRole('DOSEN'), async (req: LearningRequest, res
         subjectId: record.id,
         details: { classId, type: record.type },
       });
+      if (record.isPublished) {
+        await createClassNotifications(
+          tx,
+          classId,
+          {
+            type: 'MATERIAL_NEW',
+            title: `Materi Baru: ${record.title}`,
+            message: `Materi baru telah dipublikasikan pada kelas ${classRecord.name}.`,
+            targetUrl: `/classes/${classId}/materials`,
+          },
+          undefined,
+          { enqueueFcm: true },
+        );
+      }
       return record;
     });
+
+    if (created.isPublished) {
+      triggerFcmJobWorker();
+    }
 
     return res.status(201).json({ material: created });
   } catch (error) {
@@ -423,7 +442,7 @@ router.patch('/materials/:materialId', requireRole('DOSEN'), async (req: Learnin
     const user = actor(req);
     const classId = uuid.parse(req.params.classId);
     const materialId = uuid.parse(req.params.materialId);
-    await assertClassOwner(classId, user);
+    const classRecord = await assertClassOwner(classId, user);
     const input = patchMaterialSchema.parse(req.body);
 
     if (input.topicId) {
@@ -438,7 +457,15 @@ router.patch('/materials/:materialId', requireRole('DOSEN'), async (req: Learnin
     const safeUrl = input.externalUrl !== undefined ? validateSafeUrl(input.externalUrl) : undefined;
     const parsedFile = input.attachment !== undefined ? parseAttachment(input.attachment) : undefined;
 
-    const updated = await db.transaction(async (tx) => {
+    const { material: updated, justPublished } = await db.transaction(async (tx) => {
+      const existingRows = await tx
+        .select({ id: materials.id, isPublished: materials.isPublished })
+        .from(materials)
+        .where(and(eq(materials.id, materialId), eq(materials.classId, classId)))
+        .limit(1);
+      const existing = existingRows[0];
+      if (!existing) throw fail(404, 'NOT_FOUND', 'Materi tidak ditemukan.');
+
       const rows = await tx
         .update(materials)
         .set({
@@ -460,15 +487,38 @@ router.patch('/materials/:materialId', requireRole('DOSEN'), async (req: Learnin
         })
         .where(and(eq(materials.id, materialId), eq(materials.classId, classId)))
         .returning(materialSummarySelect);
-      if (!rows[0]) throw fail(404, 'NOT_FOUND', 'Materi tidak ditemukan.');
+      const record = rows[0];
+      if (!record) throw fail(404, 'NOT_FOUND', 'Materi tidak ditemukan.');
+
       await tx.insert(auditEvents).values({
         action: 'MATERIAL_UPDATED',
         actorId: user.id,
         subjectId: materialId,
         details: { classId },
       });
-      return rows[0];
+
+      const publishedNow = !existing.isPublished && record.isPublished;
+      if (publishedNow) {
+        await createClassNotifications(
+          tx,
+          classId,
+          {
+            type: 'MATERIAL_NEW',
+            title: `Materi Baru: ${record.title}`,
+            message: `Materi baru telah dipublikasikan pada kelas ${classRecord.name}.`,
+            targetUrl: `/classes/${classId}/materials`,
+          },
+          undefined,
+          { enqueueFcm: true },
+        );
+      }
+
+      return { material: record, justPublished: publishedNow };
     });
+
+    if (justPublished) {
+      triggerFcmJobWorker();
+    }
 
     return res.json({ material: updated });
   } catch (error) {
@@ -654,16 +704,24 @@ router.post('/assignments', requireRole('DOSEN'), async (req: LearningRequest, r
         subjectId: record.id,
         details: { classId },
       });
-      await createClassNotifications(tx, classId, {
-        type: 'ASSIGNMENT_NEW',
-        title: `Tugas Baru: ${record.title}`,
-        message: dueAt
-          ? `Tugas baru pada kelas ${classRecord.name} dengan tenggat ${dueAt.toLocaleString('id-ID')}.`
-          : `Tugas baru telah ditambahkan pada kelas ${classRecord.name}.`,
-        targetUrl: `/classes/${classId}/assignments`,
-      });
+      await createClassNotifications(
+        tx,
+        classId,
+        {
+          type: 'ASSIGNMENT_NEW',
+          title: `Tugas Baru: ${record.title}`,
+          message: dueAt
+            ? `Tugas baru pada kelas ${classRecord.name} dengan tenggat ${dueAt.toLocaleString('id-ID')}.`
+            : `Tugas baru telah ditambahkan pada kelas ${classRecord.name}.`,
+          targetUrl: `/classes/${classId}/assignments`,
+        },
+        undefined,
+        { enqueueFcm: true },
+      );
       return record;
     });
+
+    triggerFcmJobWorker();
 
     return res.status(201).json({ assignment: { ...created, submissionCount: 0 } });
   } catch (error) {

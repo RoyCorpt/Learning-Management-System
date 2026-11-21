@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   request,
   type DashboardSummary,
@@ -6,6 +6,11 @@ import {
   type Role,
   type User,
 } from '../lib/api.ts';
+import {
+  isFcmPushSupported,
+  listenForegroundFcmMessages,
+  registerFcmDeviceToken,
+} from '../lib/firebase.ts';
 
 function firstWord(fullName: string) {
   const trimmed = fullName.trim();
@@ -33,6 +38,11 @@ export function NotificationBell({
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushVapidKey, setPushVapidKey] = useState<string | null>(null);
+  const [pushRegistered, setPushRegistered] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushFeedback, setPushFeedback] = useState('');
 
   async function loadNotifications() {
     try {
@@ -54,6 +64,75 @@ export function NotificationBell({
     }, 30_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribeForeground: (() => void) | null = null;
+
+    async function setupPushAwareness() {
+      const supported = await isFcmPushSupported();
+      if (!active) return;
+      setPushSupported(supported);
+
+      let serverVapidKey: string | null = null;
+      try {
+        const cfg = (await request('/api/notifications/push-config', undefined, 'GET')) as {
+          vapidKey: string | null;
+          hasRegisteredToken: boolean;
+        };
+        if (!active) return;
+        serverVapidKey = cfg.vapidKey;
+        setPushVapidKey(cfg.vapidKey);
+        setPushRegistered(cfg.hasRegisteredToken);
+      } catch {
+        // Non-blocking if push-config check fails
+      }
+
+      if (!supported) return;
+
+      unsubscribeForeground = await listenForegroundFcmMessages(() => {
+        void loadNotifications();
+      });
+
+      if (
+        typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted' &&
+        (serverVapidKey || (import.meta.env.VITE_FIREBASE_VAPID_KEY ?? '').trim())
+      ) {
+        try {
+          const token = await registerFcmDeviceToken(serverVapidKey);
+          await request('/api/notifications/fcm-token', { token }, 'POST');
+          if (active) setPushRegistered(true);
+        } catch {
+          // Silent sync error; user can manually retry inside drawer
+        }
+      }
+    }
+
+    void setupPushAwareness();
+
+    return () => {
+      active = false;
+      unsubscribeForeground?.();
+    };
+  }, []);
+
+  async function enableDevicePush() {
+    setPushBusy(true);
+    setPushFeedback('');
+    try {
+      const token = await registerFcmDeviceToken(pushVapidKey);
+      await request('/api/notifications/fcm-token', { token }, 'POST');
+      setPushRegistered(true);
+      setPushFeedback('Notifikasi push Firebase aktif di perangkat ini.');
+    } catch (error) {
+      setPushFeedback(
+        error instanceof Error ? error.message : 'Gagal mengaktifkan notifikasi perangkat.',
+      );
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   async function handleOpenToggle() {
     const next = !open;
@@ -87,6 +166,9 @@ export function NotificationBell({
     setOpen(false);
     onNavigate(item.targetUrl);
   }
+
+  const permissionBlocked =
+    typeof Notification !== 'undefined' && Notification.permission === 'denied';
 
   return (
     <div className="notification-wrapper">
@@ -133,6 +215,30 @@ export function NotificationBell({
             </div>
           </div>
 
+          {pushSupported && (
+            <div className="notification-push-bar">
+              {pushRegistered ? (
+                <span className="notification-push-status">
+                  Notifikasi push Firebase aktif
+                </span>
+              ) : permissionBlocked ? (
+                <span className="notification-push-status">
+                  Izin notifikasi diblokir pada peramban ini
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={pushBusy}
+                  onClick={() => void enableDevicePush()}
+                >
+                  {pushBusy ? 'Mengaktifkan push…' : 'Aktifkan notifikasi perangkat'}
+                </button>
+              )}
+              {pushFeedback && <p className="notification-push-feedback">{pushFeedback}</p>}
+            </div>
+          )}
+
           {items.length === 0 ? (
             <p className="notification-empty">Belum ada notifikasi saat ini.</p>
           ) : (
@@ -161,12 +267,15 @@ export function NotificationBell({
   );
 }
 
+const DOSEN_SUMMARY_PAGE_SIZE = 9;
+
 export function RoleSummaryDashboard({
   role,
   userFullName,
   refreshKey,
   onNavigate,
   onOpenClass,
+  onManageClasses,
   onAccountUpdated,
 }: {
   role: Role;
@@ -174,12 +283,16 @@ export function RoleSummaryDashboard({
   refreshKey: number;
   onNavigate: (targetUrl: string) => void;
   onOpenClass?: (classId: string) => void;
+  onManageClasses?: () => void;
   onAccountUpdated?: () => void;
 }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [dosenSearch, setDosenSearch] = useState('');
+  const [dosenStatusFilter, setDosenStatusFilter] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
+  const [dosenPage, setDosenPage] = useState(1);
 
   async function loadSummary() {
     setLoading(true);
@@ -196,6 +309,45 @@ export function RoleSummaryDashboard({
   useEffect(() => {
     void loadSummary();
   }, [role, refreshKey]);
+
+  useEffect(() => {
+    setDosenPage(1);
+  }, [dosenSearch, dosenStatusFilter, refreshKey]);
+
+  const dosenMetrics = useMemo(() => {
+    if (!summary || summary.role !== 'DOSEN') {
+      return {
+        totalClasses: 0,
+        openClasses: 0,
+        totalStudents: 0,
+        overallAverage: '-',
+        filtered: [],
+      };
+    }
+    const items = summary.classSummaries;
+    const openClasses = items.filter((c) => c.status === 'OPEN').length;
+    const totalStudents = items.reduce((acc, c) => acc + c.studentCount, 0);
+    const numericAvgs = items
+      .map((c) => (c.averageScore !== null ? Number(c.averageScore) : NaN))
+      .filter((n) => Number.isFinite(n));
+    const overallAverage =
+      numericAvgs.length > 0
+        ? (numericAvgs.reduce((acc, n) => acc + n, 0) / numericAvgs.length).toFixed(1)
+        : '-';
+    const query = dosenSearch.trim().toLowerCase();
+    const filtered = items.filter((c) => {
+      if (dosenStatusFilter !== 'ALL' && c.status !== dosenStatusFilter) return false;
+      if (query && !c.className.toLowerCase().includes(query)) return false;
+      return true;
+    });
+    return {
+      totalClasses: items.length,
+      openClasses,
+      totalStudents,
+      overallAverage,
+      filtered,
+    };
+  }, [summary, dosenSearch, dosenStatusFilter]);
 
   async function activateStudent(studentId: string) {
     setBusyId(studentId);
@@ -226,13 +378,23 @@ export function RoleSummaryDashboard({
 
   const latestGrade = summary.role === 'MAHASISWA' ? summary.recentGrades[0] : null;
   const recentAnnouncements = summary.role === 'MAHASISWA' ? (summary.recentAnnouncements ?? []) : [];
+  const totalDosenPages = Math.max(1, Math.ceil(dosenMetrics.filtered.length / DOSEN_SUMMARY_PAGE_SIZE));
+  const currentDosenPage = Math.min(dosenPage, totalDosenPages);
+  const dosenStartIndex = (currentDosenPage - 1) * DOSEN_SUMMARY_PAGE_SIZE;
+  const pagedDosenSummaries = dosenMetrics.filtered.slice(
+    dosenStartIndex,
+    dosenStartIndex + DOSEN_SUMMARY_PAGE_SIZE,
+  );
 
   return (
     <section className="summary-panel" aria-labelledby="summary-heading">
       <div className="class-panel-heading">
         <div className="summary-greeting">
-          <p className="section-kicker">RINGKASAN PERAN</p>
-          <h2 id="summary-heading">Selamat datang, {firstWord(userFullName)}.</h2>
+          <h2 id="summary-heading">
+            {summary.role === 'DOSEN'
+              ? 'Ringkasan kelas yang Anda kelola'
+              : `Selamat datang, ${firstWord(userFullName)}.`}
+          </h2>
           <p className="summary-greeting-sub">
             {summary.role === 'MAHASISWA'
               ? summary.upcomingDeadlines.length > 0
@@ -243,14 +405,25 @@ export function RoleSummaryDashboard({
                 : 'Ringkasan pengguna aktif, kelas terbuka, dan antrean verifikasi akun mahasiswa.'}
           </p>
         </div>
-        <button
-          type="button"
-          className="button secondary inline-btn"
-          onClick={() => void loadSummary()}
-          disabled={loading}
-        >
-          Perbarui ringkasan
-        </button>
+        <div className="workspace-item-actions">
+          {summary.role === 'DOSEN' && onManageClasses && (
+            <button
+              type="button"
+              className="button secondary inline-btn"
+              onClick={onManageClasses}
+            >
+              Kelola semua kelas
+            </button>
+          )}
+          <button
+            type="button"
+            className="button secondary inline-btn"
+            onClick={() => void loadSummary()}
+            disabled={loading}
+          >
+            Perbarui ringkasan
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -278,7 +451,7 @@ export function RoleSummaryDashboard({
                 {latestGrade ? `${latestGrade.score} / 100` : `${summary.recentGrades.length}`}
               </strong>
               <span className="summary-stat-meta">
-                {latestGrade ? `${latestGrade.className} · ${latestGrade.statusLabel}` : 'Belum ada nilai dirilis'}
+                {latestGrade ? `${latestGrade.className}, ${latestGrade.statusLabel}` : 'Belum ada nilai dirilis'}
               </span>
             </div>
           </div>
@@ -293,7 +466,7 @@ export function RoleSummaryDashboard({
                   {summary.upcomingDeadlines.map((item) => (
                     <li key={`${item.kind}-${item.id}`} className="summary-list-item">
                       <div>
-                        <div className="workspace-badges" style={{ marginTop: 0 }}>
+                        <div className="workspace-badges workspace-badges--tight">
                           <span className="workspace-badge">
                             {item.kind === 'QUIZ' ? 'Kuis' : 'Tugas'}
                           </span>
@@ -330,20 +503,14 @@ export function RoleSummaryDashboard({
                 <div>
                   {summary.recentGrades.map((g) => (
                     <div key={`${g.kind}-${g.id}`} className="grade-row-item">
-                      <div style={{ minWidth: 0 }}>
-                        <strong style={{ display: 'block', fontSize: 14, color: 'var(--ink-primary)' }}>
-                          {g.title}
-                        </strong>
+                      <div className="grade-row-main">
+                        <strong className="grade-row-title">{g.title}</strong>
                         <span className="workspace-meta-time">
-                          {g.className} · {g.statusLabel}
+                          {g.className}, {g.statusLabel}
                         </span>
-                        {g.feedback && (
-                          <p className="workspace-muted" style={{ marginTop: 2 }}>
-                            {g.feedback}
-                          </p>
-                        )}
+                        {g.feedback && <p className="workspace-muted">{g.feedback}</p>}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div className="grade-row-right">
                         <span className="grade-row-score">{g.score} / 100</span>
                         <button
                           type="button"
@@ -373,7 +540,10 @@ export function RoleSummaryDashboard({
                       <strong>{ann.title}</strong>
                       <p>{ann.body.length > 180 ? `${ann.body.slice(0, 180)}…` : ann.body}</p>
                       <span className="workspace-meta-time">
-                        {ann.authorName} · {new Date(ann.createdAt).toLocaleString('id-ID')}
+                        {ann.authorName},{' '}
+                        <time dateTime={ann.createdAt}>
+                          {new Date(ann.createdAt).toLocaleString('id-ID')}
+                        </time>
                       </span>
                     </div>
                     <button
@@ -395,52 +565,155 @@ export function RoleSummaryDashboard({
         (summary.classSummaries.length === 0 ? (
           <p className="class-empty">Belum ada ringkasan kelas karena Anda belum membuat kelas.</p>
         ) : (
-          <div className="summary-cards-grid">
-            {summary.classSummaries.map((c) => (
-              <article key={c.classId} className="summary-box">
-                <div className="class-card-heading">
-                  <h4>{c.className}</h4>
-                  <span className={`class-status ${c.status.toLowerCase()}`}>
-                    {c.status === 'OPEN' ? 'Terbuka' : 'Ditutup'}
-                  </span>
-                </div>
-                <dl className="summary-metrics-dl">
-                  <div>
-                    <dt>Mahasiswa</dt>
-                    <dd>{c.studentCount}</dd>
-                  </div>
-                  <div>
-                    <dt>Tugas &amp; Kuis</dt>
-                    <dd>
-                      {c.assignmentCount} tugas · {c.quizCount} kuis
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Rasio Pengumpulan</dt>
-                    <dd>
-                      {c.submissionRatio}% ({c.actualSubmissions}/{c.expectedSubmissions})
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Rata-rata Nilai Tugas</dt>
-                    <dd>{c.averageScore ?? '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Aktivitas 7 Hari</dt>
-                    <dd>{c.recentActivityCount} postingan</dd>
-                  </div>
-                </dl>
-                {onOpenClass && (
+          <div className="summary-grid">
+            <div className="summary-stats-row">
+              <div className="summary-stat-card">
+                <span className="summary-stat-label">Total Kelas Dikelola</span>
+                <strong className="summary-stat-value">{dosenMetrics.totalClasses}</strong>
+                <span className="summary-stat-meta">
+                  {dosenMetrics.openClasses} kelas terbuka,{' '}
+                  {dosenMetrics.totalClasses - dosenMetrics.openClasses} ditutup
+                </span>
+              </div>
+              <div className="summary-stat-card">
+                <span className="summary-stat-label">Total Mahasiswa Terdaftar</span>
+                <strong className="summary-stat-value">{dosenMetrics.totalStudents}</strong>
+                <span className="summary-stat-meta">Akumulasi peserta seluruh kelas</span>
+              </div>
+              <div className="summary-stat-card">
+                <span className="summary-stat-label">Rata-rata Nilai Tugas</span>
+                <strong className="summary-stat-value">{dosenMetrics.overallAverage}</strong>
+                <span className="summary-stat-meta">Dari kelas dengan nilai dirilis</span>
+              </div>
+            </div>
+
+            <div className="class-toolbar" role="search" aria-label="Filter ringkasan kelas">
+              <label className="field-label class-search-field">
+                Cari ringkasan kelas
+                <input
+                  type="search"
+                  className="sintaks-input"
+                  placeholder="Cari berdasarkan nama kelas…"
+                  value={dosenSearch}
+                  onChange={(event) => setDosenSearch(event.target.value)}
+                  maxLength={120}
+                />
+              </label>
+              <label className="field-label class-sort-field">
+                Status kelas
+                <select
+                  className="sintaks-select"
+                  value={dosenStatusFilter}
+                  onChange={(event) =>
+                    setDosenStatusFilter(event.target.value as 'ALL' | 'OPEN' | 'CLOSED')
+                  }
+                >
+                  <option value="ALL">Semua status</option>
+                  <option value="OPEN">Terbuka</option>
+                  <option value="CLOSED">Ditutup</option>
+                </select>
+              </label>
+            </div>
+
+            {dosenMetrics.filtered.length === 0 ? (
+              <div className="class-empty" role="status">
+                Tidak ada ringkasan kelas yang sesuai dengan filter saat ini.
+                <div className="class-empty-actions">
                   <button
                     type="button"
                     className="button secondary inline-btn"
-                    onClick={() => onOpenClass(c.classId)}
+                    onClick={() => {
+                      setDosenSearch('');
+                      setDosenStatusFilter('ALL');
+                    }}
                   >
-                    Buka ruang kelas
+                    Reset filter
                   </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="summary-cards-grid">
+                  {pagedDosenSummaries.map((c) => (
+                    <article key={c.classId} className="summary-box">
+                      <div className="class-card-heading">
+                        <h4>{c.className}</h4>
+                        <span className={`class-status ${c.status.toLowerCase()}`}>
+                          {c.status === 'OPEN' ? 'Terbuka' : 'Ditutup'}
+                        </span>
+                      </div>
+                      <dl className="summary-metrics-dl">
+                        <div>
+                          <dt>Mahasiswa</dt>
+                          <dd>{c.studentCount}</dd>
+                        </div>
+                        <div>
+                          <dt>Tugas &amp; Kuis</dt>
+                          <dd>
+                            {c.assignmentCount} tugas, {c.quizCount} kuis
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Rasio Pengumpulan</dt>
+                          <dd>
+                            {c.submissionRatio}% ({c.actualSubmissions}/{c.expectedSubmissions})
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Rata-rata Nilai Tugas</dt>
+                          <dd>{c.averageScore ?? '-'}</dd>
+                        </div>
+                        <div>
+                          <dt>Aktivitas 7 Hari</dt>
+                          <dd>{c.recentActivityCount} postingan</dd>
+                        </div>
+                      </dl>
+                      {onOpenClass && (
+                        <button
+                          type="button"
+                          className="button secondary inline-btn"
+                          onClick={() => onOpenClass(c.classId)}
+                        >
+                          Buka ruang kelas
+                        </button>
+                      )}
+                    </article>
+                  ))}
+                </div>
+
+                {dosenMetrics.filtered.length > DOSEN_SUMMARY_PAGE_SIZE && (
+                  <nav className="summary-pagination" aria-label="Navigasi halaman ringkasan kelas">
+                    <p className="summary-pagination-status">
+                      Menampilkan {dosenStartIndex + 1} hingga{' '}
+                      {Math.min(
+                        dosenStartIndex + DOSEN_SUMMARY_PAGE_SIZE,
+                        dosenMetrics.filtered.length,
+                      )}{' '}
+                      dari {dosenMetrics.filtered.length} kelas (Halaman {currentDosenPage} dari{' '}
+                      {totalDosenPages})
+                    </p>
+                    <div className="summary-pagination-controls">
+                      <button
+                        type="button"
+                        className="button secondary inline-btn"
+                        disabled={currentDosenPage <= 1}
+                        onClick={() => setDosenPage((p) => Math.max(1, p - 1))}
+                      >
+                        Sebelumnya
+                      </button>
+                      <button
+                        type="button"
+                        className="button secondary inline-btn"
+                        disabled={currentDosenPage >= totalDosenPages}
+                        onClick={() => setDosenPage((p) => Math.min(totalDosenPages, p + 1))}
+                      >
+                        Berikutnya
+                      </button>
+                    </div>
+                  </nav>
                 )}
-              </article>
-            ))}
+              </>
+            )}
           </div>
         ))}
 

@@ -15,11 +15,21 @@ export const createPool = () => {
       password: process.env.SQL_PASSWORD,
       database: process.env.SQL_DB_NAME,
       max: 10,
-      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 15_000,
+      connectionTimeoutMillis: 15_000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
+      allowExitOnIdle: true,
     });
 
     global._postgresPool.on('error', (err) => {
-      console.error('Unexpected error on idle SQL pool client:', err);
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'sql_pool_idle_client_error',
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
     });
   }
   return global._postgresPool;
