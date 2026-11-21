@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
+import { resolveDatabaseConnection } from './config.js';
 import * as schema from './schema.js';
 
 declare global {
@@ -9,11 +10,18 @@ declare global {
 
 export const createPool = () => {
   if (!global._postgresPool) {
+    const conn = resolveDatabaseConnection('runtime');
     global._postgresPool = new Pool({
-      host: process.env.SQL_HOST,
-      user: process.env.SQL_USER,
-      password: process.env.SQL_PASSWORD,
-      database: process.env.SQL_DB_NAME,
+      ...(conn.kind === 'url'
+        ? { connectionString: conn.connectionString }
+        : {
+            host: conn.host,
+            port: conn.port,
+            user: conn.user,
+            password: conn.password,
+            database: conn.database,
+          }),
+      ssl: conn.ssl,
       max: 10,
       idleTimeoutMillis: 15_000,
       connectionTimeoutMillis: 15_000,

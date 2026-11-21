@@ -15,7 +15,6 @@ import { classesRouter } from './classes.js';
 import { dashboardRouter, studentRouter, userProfileRouter } from './dashboard.js';
 import { notificationsRouter } from './notifications-service.js';
 import { quizAttemptRouter } from './quizzes.js';
-import { firebaseWebConfig } from './lib/firebase-admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDistDir = [
@@ -23,13 +22,6 @@ const webDistDir = [
   path.resolve(process.cwd(), 'apps/web/dist'),
   path.resolve(process.cwd(), '../web/dist'),
 ].find((dir) => fs.existsSync(dir));
-
-const firebasePkgDir = [
-  path.resolve(__dirname, '../../../node_modules/firebase'),
-  path.resolve(__dirname, '../../../../../node_modules/firebase'),
-  path.resolve(process.cwd(), 'node_modules/firebase'),
-  path.resolve(process.cwd(), '../../node_modules/firebase'),
-].find((dir) => fs.existsSync(path.join(dir, 'firebase-messaging-compat.js')));
 
 const rootPublicDir = [
   path.resolve(__dirname, '../../../public'),
@@ -84,44 +76,6 @@ export function createApp(devFrontend?: DevFrontend) {
   app.use(['/api', '/auth'], (_req, res) => res.status(404).json({
     error: { code: 'NOT_FOUND', message: 'Endpoint tidak ditemukan.', requestId: res.locals.requestId },
   }));
-
-  if (firebasePkgDir) {
-    app.get('/vendor/firebase-app-compat.js', (_req, res) => {
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.sendFile(path.join(firebasePkgDir, 'firebase-app-compat.js'));
-    });
-    app.get('/vendor/firebase-messaging-compat.js', (_req, res) => {
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.sendFile(path.join(firebasePkgDir, 'firebase-messaging-compat.js'));
-    });
-  }
-
-  app.get('/firebase-messaging-sw.js', (_req, res) => {
-    const swScript = `/* Firebase Cloud Messaging Service Worker */
-importScripts('/vendor/firebase-app-compat.js');
-importScripts('/vendor/firebase-messaging-compat.js');
-
-firebase.initializeApp(${JSON.stringify(firebaseWebConfig)});
-const messaging = firebase.messaging();
-
-messaging.onBackgroundMessage((payload) => {
-  if (payload && !payload.notification && payload.data && payload.data.title) {
-    const title = payload.data.title;
-    const options = {
-      body: payload.data.body || '',
-      data: { targetUrl: payload.data.targetUrl || '/' },
-    };
-    self.registration.showNotification(title, options);
-  }
-});
-`;
-    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Service-Worker-Allowed', '/');
-    res.send(swScript);
-  });
 
   if (rootPublicDir) {
     app.use(express.static(rootPublicDir, { maxAge: '1h' }));

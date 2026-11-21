@@ -15,7 +15,7 @@ Skema PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.ts` (k
 - `QuizStatus`: `'DRAFT' | 'PUBLISHED' | 'CLOSED'`
 - `QuestionType`: `'MULTIPLE_CHOICE' | 'ESSAY'`
 - `AttemptStatus`: `'IN_PROGRESS' | 'PROVISIONAL' | 'FINAL'`
-- `NotificationType`: `'ASSIGNMENT_NEW' | 'QUIZ_NEW' | 'ANNOUNCEMENT_NEW' | 'GRADE_PUBLISHED'`
+- `NotificationType`: `'ASSIGNMENT_NEW' | 'QUIZ_NEW' | 'ANNOUNCEMENT_NEW' | 'GRADE_PUBLISHED' | 'MATERIAL_NEW'`
 
 ## Tabel Berdasarkan Domain
 
@@ -62,3 +62,10 @@ Skema PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.ts` (k
 | `forum_topics` | Topik diskusi kelas (`class_id`, `author_id`, `title`, `body`, `created_at`, `updated_at`). |
 | `forum_replies` | Balasan topik diskusi (`topic_id`, `author_id`, `body`, `created_at`, `updated_at`). |
 | `notifications` | Notifikasi dalam aplikasi per `user_id` (`class_id`, `type`, `title`, `message`, `target_url`, `is_read`, `created_at`). |
+
+### 6. Catatan Retensi & Migrasi Aman Tabel Warisan FCM
+
+Fitur notifikasi push peramban (Firebase Cloud Messaging) telah dihapus dari kode aplikasi (`src/db/schema.ts`, `apps/api`, `apps/web`). Demi mencegah penghapusan data tanpa otorisasi, tabel warisan `fcm_device_tokens`, `fcm_dispatch_jobs`, dan enum `FcmJobStatus` tidak dihapus otomatis dari database produksi. Bila siap membersihkan database secara aman setelah rilis stabil:
+1. Buat cadangan snapshot Cloud SQL terlebih dahulu.
+2. Verifikasi tidak ada layanan aktif yang membaca kedua tabel tersebut.
+3. Jalankan migrasi eksplisit terotorisasi: `DROP TABLE IF EXISTS fcm_dispatch_jobs; DROP TABLE IF EXISTS fcm_device_tokens; DROP TYPE IF EXISTS "FcmJobStatus";` (tanpa menyentuh tabel `notifications`).

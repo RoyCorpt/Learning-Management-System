@@ -6,11 +6,6 @@ import {
   type Role,
   type User,
 } from '../lib/api.ts';
-import {
-  isFcmPushSupported,
-  listenForegroundFcmMessages,
-  registerFcmDeviceToken,
-} from '../lib/firebase.ts';
 
 function firstWord(fullName: string) {
   const trimmed = fullName.trim();
@@ -38,11 +33,6 @@ export function NotificationBell({
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [pushSupported, setPushSupported] = useState(false);
-  const [pushVapidKey, setPushVapidKey] = useState<string | null>(null);
-  const [pushRegistered, setPushRegistered] = useState(false);
-  const [pushBusy, setPushBusy] = useState(false);
-  const [pushFeedback, setPushFeedback] = useState('');
 
   async function loadNotifications() {
     try {
@@ -64,75 +54,6 @@ export function NotificationBell({
     }, 30_000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    let unsubscribeForeground: (() => void) | null = null;
-
-    async function setupPushAwareness() {
-      const supported = await isFcmPushSupported();
-      if (!active) return;
-      setPushSupported(supported);
-
-      let serverVapidKey: string | null = null;
-      try {
-        const cfg = (await request('/api/notifications/push-config', undefined, 'GET')) as {
-          vapidKey: string | null;
-          hasRegisteredToken: boolean;
-        };
-        if (!active) return;
-        serverVapidKey = cfg.vapidKey;
-        setPushVapidKey(cfg.vapidKey);
-        setPushRegistered(cfg.hasRegisteredToken);
-      } catch {
-        // Non-blocking if push-config check fails
-      }
-
-      if (!supported) return;
-
-      unsubscribeForeground = await listenForegroundFcmMessages(() => {
-        void loadNotifications();
-      });
-
-      if (
-        typeof Notification !== 'undefined' &&
-        Notification.permission === 'granted' &&
-        (serverVapidKey || (import.meta.env.VITE_FIREBASE_VAPID_KEY ?? '').trim())
-      ) {
-        try {
-          const token = await registerFcmDeviceToken(serverVapidKey);
-          await request('/api/notifications/fcm-token', { token }, 'POST');
-          if (active) setPushRegistered(true);
-        } catch {
-          // Silent sync error; user can manually retry inside drawer
-        }
-      }
-    }
-
-    void setupPushAwareness();
-
-    return () => {
-      active = false;
-      unsubscribeForeground?.();
-    };
-  }, []);
-
-  async function enableDevicePush() {
-    setPushBusy(true);
-    setPushFeedback('');
-    try {
-      const token = await registerFcmDeviceToken(pushVapidKey);
-      await request('/api/notifications/fcm-token', { token }, 'POST');
-      setPushRegistered(true);
-      setPushFeedback('Notifikasi push Firebase aktif di perangkat ini.');
-    } catch (error) {
-      setPushFeedback(
-        error instanceof Error ? error.message : 'Gagal mengaktifkan notifikasi perangkat.',
-      );
-    } finally {
-      setPushBusy(false);
-    }
-  }
 
   async function handleOpenToggle() {
     const next = !open;
@@ -166,9 +87,6 @@ export function NotificationBell({
     setOpen(false);
     onNavigate(item.targetUrl);
   }
-
-  const permissionBlocked =
-    typeof Notification !== 'undefined' && Notification.permission === 'denied';
 
   return (
     <div className="notification-wrapper">
@@ -214,30 +132,6 @@ export function NotificationBell({
               </button>
             </div>
           </div>
-
-          {pushSupported && (
-            <div className="notification-push-bar">
-              {pushRegistered ? (
-                <span className="notification-push-status">
-                  Notifikasi push Firebase aktif
-                </span>
-              ) : permissionBlocked ? (
-                <span className="notification-push-status">
-                  Izin notifikasi diblokir pada peramban ini
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={pushBusy}
-                  onClick={() => void enableDevicePush()}
-                >
-                  {pushBusy ? 'Mengaktifkan push…' : 'Aktifkan notifikasi perangkat'}
-                </button>
-              )}
-              {pushFeedback && <p className="notification-push-feedback">{pushFeedback}</p>}
-            </div>
-          )}
 
           {items.length === 0 ? (
             <p className="notification-empty">Belum ada notifikasi saat ini.</p>

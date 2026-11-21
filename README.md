@@ -11,8 +11,8 @@ Portal pembelajaran kampus (**SINTAKS**, sebelumnya *LMS Kampus PTIK*) yang diba
 - **Validasi & Shared Types:** Zod + `packages/shared`.
 
 ## Requirements
-- Node.js 20+
-- PostgreSQL 15+ (lokal Docker Compose atau Cloud SQL melalui `DATABASE_URL`)
+- Node.js 20.12+ (direkomendasikan Node.js 22 LTS)
+- PostgreSQL 15+ (lokal via Docker Compose dengan variabel `SQL_*` dari `.env.example`, atau eksternal / Cloud SQL melalui `DATABASE_URL` atau `SQL_*` beserta `DB_SSL`)
 
 ## Quick start
 ```bash
@@ -21,6 +21,14 @@ npm install
 npm run db:push
 npm run dev
 ```
+
+Pada Windows (PowerShell):
+- Mode lokal (menyalakan PostgreSQL via Docker Compose): `.\start-lms.ps1`
+- Mode database eksternal / Cloud SQL (melewati Docker): `.\start-lms.ps1 -ExternalDb`
+
+Konfigurasi koneksi PostgreSQL pada `.env` mendukung dua pola:
+1. **Variabel terpisah (`SQL_*`):** `SQL_HOST`, `SQL_PORT`, `SQL_DB_NAME`, `SQL_USER`, `SQL_PASSWORD`, `SQL_ADMIN_USER`, `SQL_ADMIN_PASSWORD` (bawaan `.env.example` selaras dengan `docker-compose.yml`, dan diprioritaskan bila terisi lengkap).
+2. **URI tunggal (`DATABASE_URL`):** Digunakan sebagai fallback saat variabel `SQL_*` tidak disetel lengkap. Atur `DB_SSL=true` (atau `DB_SSL=no-verify` bila sertifikat self-signed) serta parameter `?sslmode=...` saat terhubung ke database eksternal/Cloud SQL yang mewajibkan TLS.
 
 Build produksi & start server terpadu (menyajikan API dan bundel web `apps/web/dist` pada port `3000`):
 ```bash
@@ -33,7 +41,7 @@ Untuk menyiapkan akun Admin awal melalui CLI (hanya berjalan jika belum ada Admi
 npm run db:bootstrap-admin -w @lms/api
 ```
 
-- **Aplikasi & API (dev/prod terpadu):** `http://localhost:3000`
+- **Aplikasi & API (dev/prod terpadu):** `http://localhost:3000` (atau port dari `PORT` / `API_PORT`)
 - **API liveness:** `GET /health`
 - **API readiness (cek koneksi PostgreSQL):** `GET /ready`
 
@@ -54,7 +62,7 @@ npm run db:bootstrap-admin -w @lms/api
 - **Sprint 4 (Penilaian, Kuis, Komunikasi, Notifikasi & Dasbor):**
   - Penilaian tugas oleh dosen (`DRAFT` vs `PUBLISHED`) dengan `NUMERIC(5,2)`, publikasi massal nilai draf, rekap nilai kelas (`Rekap Nilai`), serta tampilan nilai terpublikasi mahasiswa (`Nilai & Umpan Balik`).
   - Kuis daring dengan builder soal Pilihan Ganda & Esai, aturan jendela waktu/batas percobaan di server, kunci jawaban tersembunyi dari mahasiswa, autosave jawaban idempoten, hitung mundur waktu-nyata, auto-grading PG, dan penilaian esai manual (`PROVISIONAL` → `FINAL`).
-  - Pengumuman kelas oleh dosen, Forum Diskusi dengan jendela sunting 15 menit, notifikasi dalam aplikasi dengan navigasi langsung ke tab tujuan, dasbor ringkasan per peran (`ADMIN`, `DOSEN`, `MAHASISWA`), serta edit profil dan kata sandi mandiri.
+  - Pengumuman kelas oleh dosen, Forum Diskusi dengan jendela sunting 15 menit, notifikasi dalam aplikasi berbasis PostgreSQL (lonceng notifikasi, penghitung belum dibaca, tanda baca, riwayat), dasbor ringkasan per peran (`ADMIN`, `DOSEN`, `MAHASISWA`), serta edit profil dan kata sandi mandiri.
 - **UI/UX SINTAKS:** Rebrand penuh ke **SINTAKS**, logo resmi sebagai favicon & ikon navigasi, desain editorial terang (`#FFFFFF` / `#FAFBF9` / `#1F4D3A`), animasi hover/transisi ringan ramah `prefers-reduced-motion`, dan tombol bebas ikon panah.
 
 ## Dokumentasi terkait
