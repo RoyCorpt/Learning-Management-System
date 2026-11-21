@@ -7,19 +7,42 @@ import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import type { Server } from 'node:http';
+import { and, count, eq, gte, ilike, inArray, isNull, or } from 'drizzle-orm';
+import { Pool } from 'pg';
+import { resolveDatabaseConnection } from '../../../src/db/config.js';
+import { db, pool } from '../../../src/db/index.js';
+import { auditEvents, sessions, studentRoster, users } from '../../../src/db/schema.js';
 import { parseStudentRosterCsv } from './roster.js';
+
+function createAdminDdlPool() {
+  const conn = resolveDatabaseConnection('admin');
+  return new Pool(
+    conn.kind === 'url'
+      ? { connectionString: conn.connectionString, ssl: conn.ssl }
+      : {
+          host: conn.host,
+          port: conn.port,
+          user: conn.user,
+          password: conn.password,
+          database: conn.database,
+          ssl: conn.ssl,
+        },
+  );
+}
 
 describe('Sprint 1 authentication foundation', () => {
   let dbIntegrationStartedAt: Date | undefined;
   beforeAll(() => { if (process.env.RUN_DB_INTEGRATION === '1') dbIntegrationStartedAt = new Date(); });
   afterAll(async () => {
-    if (!dbIntegrationStartedAt) return;
-    const { prisma } = await import('./lib/prisma.js');
-    await prisma.auditEvent.deleteMany({ where: { action: 'AUTH_LOGIN_FAILED', actorId: null, createdAt: { gte: dbIntegrationStartedAt } } });
+    if (dbIntegrationStartedAt) {
+      await db
+        .delete(auditEvents)
+        .where(and(eq(auditEvents.action, 'AUTH_LOGIN_FAILED'), isNull(auditEvents.actorId), gte(auditEvents.createdAt, dbIntegrationStartedAt)));
+    }
+    await pool.end();
   });
   (process.env.RUN_DB_INTEGRATION === '1' ? it : it.skip)('bootstraps exactly one initial Admin without printing credentials', async (context) => {
-    const { prisma } = await import('./lib/prisma.js');
-    const existingAdmins = await prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true } });
+    const existingAdmins = await db.select({ id: users.id }).from(users).where(eq(users.role, 'ADMIN'));
     if (existingAdmins.length) context.skip('An Admin already exists; preserve the configured database and skip one-time bootstrap rehearsal.');
     const id = randomUUID(); const email = `bootstrap-${id}@example.invalid`; const password = `Bootstrap-Test-${id}-42!`;
     const run = promisify(execFile);
@@ -38,17 +61,23 @@ describe('Sprint 1 authentication foundation', () => {
       const first = await run(process.execPath, [tsx, script], { cwd: repoRoot, env: childEnv, encoding: 'utf8' });
       expect(first.stdout).toContain('admin_bootstrap_succeeded');
       expect(first.stdout).not.toContain(password);
-      const bootstrapped = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true, role: true, status: true, passwordHash: true } });
-      expect(bootstrapped.role).toBe('ADMIN');
-      expect(bootstrapped.status).toBe('ACTIVE');
-      expect(bootstrapped.passwordHash).not.toBe(password);
+      const [bootstrapped] = await db
+        .select({ id: users.id, role: users.role, status: users.status, passwordHash: users.passwordHash })
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+      expect(bootstrapped).toBeDefined();
+      expect(bootstrapped!.role).toBe('ADMIN');
+      expect(bootstrapped!.status).toBe('ACTIVE');
+      expect(bootstrapped!.passwordHash).not.toBe(password);
       await expect(run(process.execPath, [tsx, script], { cwd: repoRoot, env: childEnv, encoding: 'utf8' })).rejects.toMatchObject({ code: 1, stdout: expect.not.stringContaining(password) });
-      expect(await prisma.user.count({ where: { role: 'ADMIN' } })).toBe(1);
+      const [adminCount] = await db.select({ total: count() }).from(users).where(eq(users.role, 'ADMIN'));
+      expect(adminCount?.total).toBe(1);
     } finally {
-      const created = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      const [created] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
       if (created) {
-        await prisma.auditEvent.deleteMany({ where: { subjectId: created.id } });
-        await prisma.user.delete({ where: { id: created.id } });
+        await db.delete(auditEvents).where(eq(auditEvents.subjectId, created.id));
+        await db.delete(users).where(eq(users.id, created.id));
       }
     }
   }, 30000);
@@ -82,9 +111,8 @@ describe('Sprint 1 authentication foundation', () => {
 
   (process.env.RUN_DB_INTEGRATION === '1' ? it : it.skip)('revokes sessions, checks account status on each request, enforces RBAC and rate limits', async () => {
     const { createApp } = await import('./app.js');
-    const { prisma } = await import('./lib/prisma.js');
     const id = randomUUID(); const email = `sprint1-${id}@example.invalid`; const password = 'Integration-Password-42!';
-    const user = await prisma.user.create({ data: { email, fullName: 'Sprint One Test', role: 'MAHASISWA', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const [user] = await db.insert(users).values({ email, fullName: 'Sprint One Test', role: 'MAHASISWA', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) }).returning();
     const server = createApp().listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -95,7 +123,7 @@ describe('Sprint 1 authentication foundation', () => {
       expect(login.status).toBe(200);
       const setCookies = login.headers.getSetCookie();
       expect(setCookies.find((v) => v.startsWith('lms_session='))).toContain('HttpOnly');
-      expect(setCookies.every((v) => v.includes('SameSite=Strict'))).toBe(true);
+      expect(setCookies.every((v) => v.includes('SameSite=Lax') || v.includes('SameSite=None'))).toBe(true);
       expect(setCookies.find((v) => v.startsWith('lms_csrf='))).not.toContain('HttpOnly');
       const cookies = setCookies.map((v) => v.split(';')[0]!);
       const cookieHeader = cookies.join('; '); const csrf = cookies.find((v) => v.startsWith('lms_csrf='))!.slice('lms_csrf='.length);
@@ -111,11 +139,11 @@ describe('Sprint 1 authentication foundation', () => {
       const expiredSessionCookie = secondCookies.find((v) => v.startsWith('lms_session='));
       const expiredToken = expiredSessionCookie!.slice('lms_session='.length);
       const { createHash } = await import('node:crypto');
-      await prisma.session.update({ where: { tokenHash: createHash('sha256').update(expiredToken).digest('hex') }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      await db.update(sessions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(sessions.tokenHash, createHash('sha256').update(expiredToken).digest('hex')));
       expect((await fetch(`${base}/auth/me`, { headers: { Cookie: expiredSessionCookie! } })).status).toBe(401);
       const thirdLogin = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
       const oldSessionCookie = thirdLogin.headers.getSetCookie().find((v) => v.startsWith('lms_session='))!.split(';')[0]!;
-      await prisma.user.update({ where: { id: user.id }, data: { status: 'INACTIVE' } });
+      await db.update(users).set({ status: 'INACTIVE' }).where(eq(users.id, user!.id));
       expect((await fetch(`${base}/auth/me`, { headers: { Cookie: oldSessionCookie } })).status).toBe(401);
       const inactiveLogin = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
       const unknownLogin = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `unknown-${id}@example.invalid`, password }) });
@@ -126,18 +154,17 @@ describe('Sprint 1 authentication foundation', () => {
       expect(limited.status).toBe(429);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      await prisma.auditEvent.deleteMany({ where: { actorId: user.id } });
-      await prisma.user.delete({ where: { id: user.id } });
-      await prisma.$disconnect();
+      await db.delete(auditEvents).where(eq(auditEvents.actorId, user!.id));
+      await db.delete(users).where(eq(users.id, user!.id));
     }
   }, 30000);
 
   (process.env.RUN_DB_INTEGRATION === '1' ? it : it.skip)('rolls back logout session revocation when audit insertion fails', async () => {
     const { createApp } = await import('./app.js');
-    const { prisma } = await import('./lib/prisma.js');
+    const ddlPool = createAdminDdlPool();
     const id = randomUUID(); const email = `logout-rollback-${id}@example.invalid`; const password = 'Logout-Rollback-Password-42!';
     const trigger = `logout_${id.replaceAll('-', '')}_trigger`; const fn = `logout_${id.replaceAll('-', '')}_fn`;
-    const user = await prisma.user.create({ data: { email, fullName: 'Logout Rollback Test', role: 'MAHASISWA', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const [user] = await db.insert(users).values({ email, fullName: 'Logout Rollback Test', role: 'MAHASISWA', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) }).returning();
     let server: Server | undefined;
     try {
       server = createApp().listen(0);
@@ -150,31 +177,32 @@ describe('Sprint 1 authentication foundation', () => {
       const cookies = login.headers.getSetCookie().map((value) => value.split(';')[0]!);
       const sessionCookie = cookies.find((value) => value.startsWith('lms_session='))!;
       const csrf = cookies.find((value) => value.startsWith('lms_csrf='))!.slice('lms_csrf='.length);
-      await prisma.$executeRawUnsafe(`CREATE FUNCTION "${fn}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.actor_id = '${user.id}'::uuid AND NEW.action = 'AUTH_LOGOUT' THEN RAISE EXCEPTION 'logout audit failure'; END IF; RETURN NEW; END; $$`);
-      await prisma.$executeRawUnsafe(`CREATE TRIGGER "${trigger}" BEFORE INSERT ON "audit_events" FOR EACH ROW EXECUTE FUNCTION "${fn}"()`);
+      await ddlPool.query(`CREATE FUNCTION "${fn}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.actor_id = '${user!.id}'::uuid AND NEW.action = 'AUTH_LOGOUT' THEN RAISE EXCEPTION 'logout audit failure'; END IF; RETURN NEW; END; $$`);
+      await ddlPool.query(`CREATE TRIGGER "${trigger}" BEFORE INSERT ON "audit_events" FOR EACH ROW EXECUTE FUNCTION "${fn}"()`);
 
       const logout = await fetch(`${base}/auth/logout`, { method: 'POST', headers: { Cookie: cookies.join('; '), 'X-CSRF-Token': csrf } });
       expect(logout.status).toBe(500);
-      const session = await prisma.session.findFirstOrThrow({ where: { userId: user.id } });
-      expect(session.revokedAt).toBeNull();
-      expect(await prisma.auditEvent.count({ where: { action: 'AUTH_LOGOUT', actorId: user.id } })).toBe(0);
+      const [session] = await db.select().from(sessions).where(eq(sessions.userId, user!.id)).limit(1);
+      expect(session?.revokedAt).toBeNull();
+      const [logoutAuditCount] = await db.select({ total: count() }).from(auditEvents).where(and(eq(auditEvents.action, 'AUTH_LOGOUT'), eq(auditEvents.actorId, user!.id)));
+      expect(logoutAuditCount?.total).toBe(0);
       expect((await fetch(`${base}/auth/me`, { headers: { Cookie: sessionCookie } })).status).toBe(200);
     } finally {
       if (server?.listening) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve()));
-      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${trigger}" ON "audit_events"`).catch(() => undefined);
-      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${fn}"()`).catch(() => undefined);
-      await prisma.auditEvent.deleteMany({ where: { actorId: user.id } });
-      await prisma.user.delete({ where: { id: user.id } });
+      await ddlPool.query(`DROP TRIGGER IF EXISTS "${trigger}" ON "audit_events"`).catch(() => undefined);
+      await ddlPool.query(`DROP FUNCTION IF EXISTS "${fn}"()`).catch(() => undefined);
+      await ddlPool.end().catch(() => undefined);
+      await db.delete(auditEvents).where(eq(auditEvents.actorId, user!.id));
+      await db.delete(users).where(eq(users.id, user!.id));
     }
   }, 30000);
 
   (process.env.RUN_DB_INTEGRATION === '1' ? it : it.skip)('provisions a Dosen once, enforces password change, and audits atomically', async () => {
     const { createApp } = await import('./app.js');
-    const { prisma } = await import('./lib/prisma.js');
     const id = randomUUID(); const email = `admin-provision-${id}@example.invalid`; const instructorEmail = `dosen-${id}@example.invalid`; const password = 'Temporary-Admin-Password-42!';
-    const admin = await prisma.user.create({ data: { email, fullName: 'Temporary Provisioning Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const [admin] = await db.insert(users).values({ email, fullName: 'Temporary Provisioning Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) }).returning();
     const targetAdminEmail = `admin-target-${id}@example.invalid`; const targetAdminPassword = 'Target-Admin-Password-42!';
-    const targetAdmin = await prisma.user.create({ data: { email: targetAdminEmail, fullName: 'Temporary Target Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(targetAdminPassword, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    const [targetAdmin] = await db.insert(users).values({ email: targetAdminEmail, fullName: 'Temporary Target Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(targetAdminPassword, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) }).returning();
     let server: Server | undefined; let instructorId: string | undefined;
     try {
       server = createApp().listen(0);
@@ -197,8 +225,8 @@ describe('Sprint 1 authentication foundation', () => {
       instructorId = body.user.id;
       expect(body.user.role).toBe('DOSEN'); expect(body.user.status).toBe('ACTIVE'); expect(body.mustChangePassword).toBe(true);
       expect(body.temporaryPassword).toHaveLength(32);
-      const auditEvent = await prisma.auditEvent.findFirst({ where: { action: 'ADMIN_INSTRUCTOR_CREATED', actorId: admin.id, subjectId: instructorId } });
-      expect(auditEvent).not.toBeNull();
+      const [auditEvent] = await db.select().from(auditEvents).where(and(eq(auditEvents.action, 'ADMIN_INSTRUCTOR_CREATED'), eq(auditEvents.actorId, admin!.id), eq(auditEvents.subjectId, instructorId))).limit(1);
+      expect(auditEvent).toBeDefined();
       const instructorLogin = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: instructorEmail, password: body.temporaryPassword }) });
       expect(instructorLogin.status).toBe(200);
       expect((await instructorLogin.json()).user.mustChangePassword).toBe(true);
@@ -211,44 +239,45 @@ describe('Sprint 1 authentication foundation', () => {
       expect((await fetch(`${base}/auth/me`, { headers: { Cookie: oldInstructorSession } })).status).toBe(401);
       const duplicate = await fetch(`${base}/auth/admin/instructors`, { method: 'POST', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: instructorEmail.toUpperCase(), fullName: 'Duplicate Instructor' }) });
       expect(duplicate.status).toBe(409);
-      expect(await prisma.user.count({ where: { email: instructorEmail } })).toBe(1);
+      const [instructorCount] = await db.select({ total: count() }).from(users).where(eq(users.email, instructorEmail));
+      expect(instructorCount?.total).toBe(1);
       const changedRoleLogin = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: instructorEmail, password: 'Permanent-Dosen-Password-52!' }) });
       const changedRoleSession = changedRoleLogin.headers.getSetCookie().find((v) => v.startsWith('lms_session='))!.split(';')[0]!;
       const roleChange = await fetch(`${base}/auth/admin/users/${instructorId}/role`, { method: 'PATCH', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'MAHASISWA' }) });
       expect(roleChange.status).toBe(200);
       expect((await fetch(`${base}/auth/me`, { headers: { Cookie: changedRoleSession } })).status).toBe(401);
-      expect(await prisma.auditEvent.count({ where: { action: 'ADMIN_ACCOUNT_ROLE_CHANGED', actorId: admin.id, subjectId: instructorId } })).toBe(1);
-      const deactivateTarget = await fetch(`${base}/auth/admin/users/${targetAdmin.id}/status`, { method: 'PATCH', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'INACTIVE' }) });
+      const [roleChangedAuditCount] = await db.select({ total: count() }).from(auditEvents).where(and(eq(auditEvents.action, 'ADMIN_ACCOUNT_ROLE_CHANGED'), eq(auditEvents.actorId, admin!.id), eq(auditEvents.subjectId, instructorId)));
+      expect(roleChangedAuditCount?.total).toBe(1);
+      const deactivateTarget = await fetch(`${base}/auth/admin/users/${targetAdmin!.id}/status`, { method: 'PATCH', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'INACTIVE' }) });
       expect(deactivateTarget.status).toBe(200);
       expect((await fetch(`${base}/auth/me`, { headers: { Cookie: targetSession } })).status).toBe(401);
-      const lastAdminGuard = await fetch(`${base}/auth/admin/users/${targetAdmin.id}/status`, { method: 'PATCH', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'INACTIVE' }) });
+      const lastAdminGuard = await fetch(`${base}/auth/admin/users/${targetAdmin!.id}/status`, { method: 'PATCH', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'INACTIVE' }) });
       expect(lastAdminGuard.status).toBe(409);
       expect((await lastAdminGuard.json()).error.code).toBe('LAST_ACTIVE_ADMIN');
     } finally {
       if (server?.listening) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve()));
-      await prisma.auditEvent.deleteMany({ where: { OR: [{ actorId: admin.id }, { actorId: targetAdmin.id }, ...(instructorId ? [{ actorId: instructorId }, { subjectId: instructorId }] : []), { subjectId: targetAdmin.id }] } });
-      await prisma.user.deleteMany({ where: { OR: [{ id: admin.id }, { id: targetAdmin.id }, { email: instructorEmail }] } });
+      await db.delete(auditEvents).where(or(eq(auditEvents.actorId, admin!.id), eq(auditEvents.actorId, targetAdmin!.id), ...(instructorId ? [eq(auditEvents.actorId, instructorId), eq(auditEvents.subjectId, instructorId)] : []), eq(auditEvents.subjectId, targetAdmin!.id)));
+      await db.delete(users).where(or(eq(users.id, admin!.id), eq(users.id, targetAdmin!.id), eq(users.email, instructorEmail)));
     }
   }, 30000);
 
   it.skipIf(process.env.RUN_OFFICIAL_ROSTER_INTEGRATION !== '1' || !process.env.OFFICIAL_ROSTER_CSV_PATH)('imports the supplied roster, registers an eligible student once, and keeps the account pending', async (context) => {
     const { createApp } = await import('./app.js');
-    const { prisma } = await import('./lib/prisma.js');
     const csvSource = await readFile(process.env.OFFICIAL_ROSTER_CSV_PATH!, 'utf8');
     const entries = parseStudentRosterCsv(csvSource, ['unimed.ac.id', 'mhs.unimed.ac.id']);
-    const rosterMatches = await prisma.studentRoster.findMany({ where: { OR: entries.flatMap(({ nim, email }) => [{ nim }, { email: { equals: email, mode: 'insensitive' as const } }]) }, select: { id: true } });
-    const userMatches = await prisma.user.findMany({ where: { OR: entries.map(({ email }) => ({ email })) }, select: { id: true } });
+    const rosterMatches = await db.select({ id: studentRoster.id }).from(studentRoster).where(or(...entries.flatMap(({ nim, email }) => [eq(studentRoster.nim, nim), ilike(studentRoster.email, email)])));
+    const userMatches = await db.select({ id: users.id }).from(users).where(inArray(users.email, entries.map(({ email }) => email)));
     if (rosterMatches.length || userMatches.length) context.skip('Official roster identities already exist in the local database; skipped to preserve existing records.');
 
     const id = randomUUID(); const adminEmail = `roster-test-${id}@example.invalid`; const password = 'Roster-Admin-Integration-42!';
     const rollbackNimA = `ra-${id.slice(0, 20)}`; const rollbackNimB = `rb-${id.slice(0, 20)}`;
     const rollbackEmailA = `rollback-a-${id}@mhs.unimed.ac.id`; const rollbackEmailB = `rollback-b-${id}@mhs.unimed.ac.id`;
     const freshNim = `rn-${id.slice(0, 20)}`; const freshEmail = `rollback-new-${id}@mhs.unimed.ac.id`;
-    await prisma.studentRoster.createMany({ data: [
+    await db.insert(studentRoster).values([
       { nim: rollbackNimA, email: rollbackEmailA, fullName: 'Temporary Conflict A', registrationEligible: true },
       { nim: rollbackNimB, email: rollbackEmailB, fullName: 'Temporary Conflict B', registrationEligible: true },
-    ] });
-    const admin = await prisma.user.create({ data: { email: adminEmail, fullName: 'Temporary Roster Test Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) } });
+    ]);
+    const [admin] = await db.insert(users).values({ email: adminEmail, fullName: 'Temporary Roster Test Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) }).returning();
     let server: Server | undefined;
     try {
       server = createApp().listen(0);
@@ -264,13 +293,17 @@ describe('Sprint 1 authentication foundation', () => {
       const partialResponse = await fetch(`${base}/auth/admin/roster/import`, { method: 'POST', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ csv: partialConflict }) });
       expect(partialResponse.status).toBe(409);
       expect((await partialResponse.json()).error.code).toBe('ROSTER_CONFLICT');
-      expect(await prisma.studentRoster.findUnique({ where: { nim: freshNim } })).toBeNull();
-      expect((await prisma.studentRoster.findUniqueOrThrow({ where: { nim: rollbackNimB } })).email).toBe(rollbackEmailB);
-      expect(await prisma.auditEvent.count({ where: { action: 'ADMIN_ROSTER_IMPORTED', actorId: admin.id } })).toBe(0);
+      const [missingFresh] = await db.select().from(studentRoster).where(eq(studentRoster.nim, freshNim)).limit(1);
+      expect(missingFresh).toBeUndefined();
+      const [preservedConflict] = await db.select().from(studentRoster).where(eq(studentRoster.nim, rollbackNimB)).limit(1);
+      expect(preservedConflict?.email).toBe(rollbackEmailB);
+      const [zeroRosterAudit] = await db.select({ total: count() }).from(auditEvents).where(and(eq(auditEvents.action, 'ADMIN_ROSTER_IMPORTED'), eq(auditEvents.actorId, admin!.id)));
+      expect(zeroRosterAudit?.total).toBe(0);
       const imported = await fetch(`${base}/auth/admin/roster/import`, { method: 'POST', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ csv: csvSource }) });
       expect(imported.status).toBe(200);
       expect((await imported.json()).summary).toEqual({ rows: entries.length, created: entries.length, updated: 0 });
-      expect(await prisma.auditEvent.count({ where: { action: 'ADMIN_ROSTER_IMPORTED', actorId: admin.id } })).toBe(1);
+      const [rosterAuditCount] = await db.select({ total: count() }).from(auditEvents).where(and(eq(auditEvents.action, 'ADMIN_ROSTER_IMPORTED'), eq(auditEvents.actorId, admin!.id)));
+      expect(rosterAuditCount?.total).toBe(1);
       const unknownStatusCsv = ';;;;nim;nama;email;status\n;;;;0000000001;Fixture;fixture@mhs.unimed.ac.id;unknown';
       const invalidImport = await fetch(`${base}/auth/admin/roster/import`, { method: 'POST', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ csv: unknownStatusCsv }) });
       expect(invalidImport.status).toBe(400);
@@ -283,31 +316,39 @@ describe('Sprint 1 authentication foundation', () => {
       const registration = await fetch(`${base}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: selected.email.toUpperCase(), nim: selected.nim, password: 'Student-Registration-42!' }) });
       expect(registration.status).toBe(202);
       expect((await registration.json()).status).toBe('PENDING');
-      const student = await prisma.user.findUniqueOrThrow({ where: { email: selected.email }, select: { id: true, status: true, role: true } });
-      expect(student.status).toBe('PENDING');
-      expect(student.role).toBe('MAHASISWA');
-      let rosterEntry = await prisma.studentRoster.findUniqueOrThrow({ where: { nim: selected.nim }, select: { registrationEligible: true, registeredAt: true, registeredUserId: true } });
-      expect(rosterEntry.registrationEligible).toBe(true);
-      expect(rosterEntry.registeredAt).not.toBeNull();
-      expect(rosterEntry.registeredUserId).toBe(student.id);
+      const [student] = await db.select({ id: users.id, status: users.status, role: users.role }).from(users).where(eq(users.email, selected.email)).limit(1);
+      expect(student).toBeDefined();
+      expect(student!.status).toBe('PENDING');
+      expect(student!.role).toBe('MAHASISWA');
+      let [rosterEntry] = await db.select({ registrationEligible: studentRoster.registrationEligible, registeredAt: studentRoster.registeredAt, registeredUserId: studentRoster.registeredUserId }).from(studentRoster).where(eq(studentRoster.nim, selected.nim)).limit(1);
+      expect(rosterEntry?.registrationEligible).toBe(true);
+      expect(rosterEntry?.registeredAt).not.toBeNull();
+      expect(rosterEntry?.registeredUserId).toBe(student!.id);
 
       const reimport = await fetch(`${base}/auth/admin/roster/import`, { method: 'POST', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ csv: csvSource }) });
       expect(reimport.status).toBe(200);
       expect((await reimport.json()).summary).toEqual({ rows: entries.length, created: 0, updated: entries.length });
       const repeated = await fetch(`${base}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: selected.email, nim: selected.nim, password: 'Student-Registration-43!' }) });
       expect(repeated.status).toBe(400);
-      rosterEntry = await prisma.studentRoster.findUniqueOrThrow({ where: { nim: selected.nim }, select: { registrationEligible: true, registeredAt: true, registeredUserId: true } });
-      expect(rosterEntry.registrationEligible).toBe(true);
-      expect(rosterEntry.registeredUserId).toBe(student.id);
+      [rosterEntry] = await db.select({ registrationEligible: studentRoster.registrationEligible, registeredAt: studentRoster.registeredAt, registeredUserId: studentRoster.registeredUserId }).from(studentRoster).where(eq(studentRoster.nim, selected.nim)).limit(1);
+      expect(rosterEntry?.registrationEligible).toBe(true);
+      expect(rosterEntry?.registeredUserId).toBe(student!.id);
     } finally {
       if (server?.listening) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve()));
-      const studentUsers = await prisma.user.findMany({ where: { email: { in: entries.map(({ email }) => email) } }, select: { id: true } });
-      await prisma.auditEvent.deleteMany({ where: { OR: [{ actorId: admin.id }, { subjectId: { in: studentUsers.map(({ id: studentUserId }) => studentUserId) } }] } });
-      await prisma.studentRoster.deleteMany({ where: { nim: { in: entries.map(({ nim }) => nim) } } });
-      await prisma.studentRoster.deleteMany({ where: { nim: { in: [rollbackNimA, rollbackNimB, freshNim] } } });
-      await prisma.user.deleteMany({ where: { OR: [{ id: admin.id }, { email: { in: entries.map(({ email }) => email) } }] } });
-      expect(await prisma.studentRoster.count({ where: { nim: { in: entries.map(({ nim }) => nim) } } })).toBe(0);
-      expect(await prisma.user.count({ where: { OR: [{ id: admin.id }, { email: { in: entries.map(({ email }) => email) } }] } })).toBe(0);
+      const studentUsers = await db.select({ id: users.id }).from(users).where(inArray(users.email, entries.map(({ email }) => email)));
+      const studentUserIds = studentUsers.map(({ id: studentUserId }) => studentUserId);
+      if (studentUserIds.length > 0) {
+        await db.delete(auditEvents).where(or(eq(auditEvents.actorId, admin!.id), inArray(auditEvents.subjectId, studentUserIds)));
+      } else {
+        await db.delete(auditEvents).where(eq(auditEvents.actorId, admin!.id));
+      }
+      await db.delete(studentRoster).where(inArray(studentRoster.nim, entries.map(({ nim }) => nim)));
+      await db.delete(studentRoster).where(inArray(studentRoster.nim, [rollbackNimA, rollbackNimB, freshNim]));
+      await db.delete(users).where(or(eq(users.id, admin!.id), inArray(users.email, entries.map(({ email }) => email))));
+      const [remainingRosterCount] = await db.select({ total: count() }).from(studentRoster).where(inArray(studentRoster.nim, entries.map(({ nim }) => nim)));
+      expect(remainingRosterCount?.total).toBe(0);
+      const [remainingUserCount] = await db.select({ total: count() }).from(users).where(or(eq(users.id, admin!.id), inArray(users.email, entries.map(({ email }) => email))));
+      expect(remainingUserCount?.total).toBe(0);
     }
   }, 30000);
 

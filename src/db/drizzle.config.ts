@@ -11,7 +11,7 @@ if (conn.kind === 'url') {
 }
 
 export default defineConfig({
-  schema: './src/db/schema.ts',
+  schema: ['./src/db/schema.ts', './src/db/legacy-fcm-schema.ts'],
   out: './drizzle',
   dialect: 'postgresql',
   schemaFilter: ['public'],

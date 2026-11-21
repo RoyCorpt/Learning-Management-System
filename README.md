@@ -48,14 +48,14 @@ npm run db:bootstrap-admin -w @lms/api
 ## Workspace
 - `apps/web` — aplikasi web React + Vite (**SINTAKS**)
 - `apps/api` — layanan API Express + TypeScript
-- `src/db` — skema Drizzle ORM (`schema.ts`), koneksi database, dan konfigurasi Drizzle
+- `src/db` — skema Drizzle ORM aktif (`schema.ts`), koneksi database (`index.ts`, `config.ts`), konfigurasi Drizzle (`drizzle.config.ts`), dan definisi retensi objek historis warisan (`legacy-fcm-schema.ts` khusus `db:push`)
 - `packages/shared` — tipe bersama antar workspace
 - `public` — aset statis termasuk logo resmi SINTAKS (`/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png`)
 - `docs` — dokumentasi baseline, skema, roadmap use case, changelog, dan laporan Sprint 0–4
 
 ## Status website saat ini
 
-**Per 2026-11-16:** Seluruh alur MVP **Sprint 1 hingga Sprint 4** serta redesain **SINTAKS** telah diimplementasikan dan aktif di server:
+**Per 2026-11-21:** Seluruh alur MVP **Sprint 1 hingga Sprint 4** serta redesain **SINTAKS** telah diimplementasikan dan aktif di server (dengan notifikasi dalam aplikasi berbasis PostgreSQL serta Firebase Auth Google Sign-In; tanpa push browser FCM/VAPID):
 - **Sprint 1 (Identitas & Tata Kelola Akun):** Login/logout email & kata sandi (Argon2id), masuk dengan Google (Firebase Authentication), registrasi mahasiswa berbasis klaim satu kali terhadap roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), pembuatan akun Dosen dengan kata sandi sementara, perubahan kata sandi wajib/mandiri, dan tata kelola peran/status akun dengan perlindungan Admin aktif terakhir.
 - **Sprint 2 (Kelas & Keanggotaan):** Dosen membuat, mengubah, menutup kelas (`OPEN`/`CLOSED`), menerbitkan/merotasi kode undangan 43 karakter sekali tampil, dan melihat daftar anggota; mahasiswa `ACTIVE` bergabung ke kelas `OPEN` menggunakan kode undangan; dilengkapi pencarian (`Cari kelas`) dan pengurutan (`Terbaru dibuat`, `Nama (A–Z)`, `Status`).
 - **Sprint 3 (Topik, Materi, Tugas & Pengumpulan):** Manajemen topik dan materi (`TEXT`, `LINK`, `FILE` maks. 4 MB), publikasi materi draf/terbit, pembuatan tugas dengan tenggat opsional dan kebijakan keterlambatan (`allowLate`), serta pengumpulan/pengiriman ulang tugas oleh mahasiswa di dalam transaksi serializable dengan pelacakan `Versi ke-N` dan status `Tepat waktu` / `Terlambat`.

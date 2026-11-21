@@ -1,8 +1,8 @@
 # Database Schema SINTAKS (Sprint 1–4)
 
-**Versi:** 2.0 · **Tanggal:** 2026-11-16 · **Status:** Aktif di Cloud SQL PostgreSQL (`asia-southeast1`)
+**Versi:** 2.1 · **Tanggal:** 2026-11-21 · **Status:** Aktif di Cloud SQL PostgreSQL (`asia-southeast1`)
 
-Skema PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.ts` (koneksi `src/db/index.ts`, konfigurasi `src/db/drizzle.config.ts`) dengan konvensi penamaan tabel dan kolom `snake_case`.
+Skema aktif PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.ts` (koneksi `src/db/index.ts`, konfigurasi `src/db/drizzle.config.ts`) dengan konvensi penamaan tabel dan kolom `snake_case`.
 
 ## Daftar Enum PostgreSQL
 
@@ -63,9 +63,13 @@ Skema PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.ts` (k
 | `forum_replies` | Balasan topik diskusi (`topic_id`, `author_id`, `body`, `created_at`, `updated_at`). |
 | `notifications` | Notifikasi dalam aplikasi per `user_id` (`class_id`, `type`, `title`, `message`, `target_url`, `is_read`, `created_at`). |
 
-### 6. Catatan Retensi & Migrasi Aman Tabel Warisan FCM
+### 6. Catatan Retensi & Perlindungan Tabel Warisan FCM
 
-Fitur notifikasi push peramban (Firebase Cloud Messaging) telah dihapus dari kode aplikasi (`src/db/schema.ts`, `apps/api`, `apps/web`). Demi mencegah penghapusan data tanpa otorisasi, tabel warisan `fcm_device_tokens`, `fcm_dispatch_jobs`, dan enum `FcmJobStatus` tidak dihapus otomatis dari database produksi. Bila siap membersihkan database secara aman setelah rilis stabil:
+Fitur notifikasi push peramban (Firebase Cloud Messaging) telah dihapus dari kode aplikasi (`src/db/schema.ts`, `src/db/index.ts`, `apps/api`, `apps/web`). Demi menjaga data historis dan mencegah penghapusan tanpa otorisasi, tabel warisan `fcm_device_tokens`, `fcm_dispatch_jobs`, dan enum `FcmJobStatus` dipertahankan di Cloud SQL sebagai objek historis pasif:
+- **Mengapa perlindungan khusus diperlukan:** Pada Drizzle Kit (`0.31.x`), tanpa pemetaan retensi, `npm run db:push` mengusulkan `DROP TABLE "fcm_device_tokens" CASCADE`, `DROP TABLE "fcm_dispatch_jobs" CASCADE`, dan `DROP TYPE "public"."FcmJobStatus"`. Opsi `tablesFilter` saja hanya menyaring nama tabel dan tetap menghasilkan `DROP TYPE "public"."FcmJobStatus"`, yang gagal di PostgreSQL karena kolom `fcm_dispatch_jobs.status` masih bergantung pada enum tersebut.
+- **Strategi retensi non-destruktif:** Definisi `@deprecated` untuk `fcm_device_tokens`, `fcm_dispatch_jobs`, dan `FcmJobStatus` dipisahkan ke berkas khusus `src/db/legacy-fcm-schema.ts` dan **hanya** dimuat oleh `src/db/drizzle.config.ts` (`schema: ['./src/db/schema.ts', './src/db/legacy-fcm-schema.ts']`). Kode runtime (`src/db/index.ts`, `src/db/schema.ts`, `apps/api`, `apps/web`) tidak mengimpor berkas tersebut, sehingga runtime sepenuhnya terbebas dari FCM sementara `npm run db:push` berjalan aman (`No changes detected`).
+
+Bila siap melakukan migrasi pensiun (*retirement migration*) secara aman setelah rilis stabil:
 1. Buat cadangan snapshot Cloud SQL terlebih dahulu.
-2. Verifikasi tidak ada layanan aktif yang membaca kedua tabel tersebut.
-3. Jalankan migrasi eksplisit terotorisasi: `DROP TABLE IF EXISTS fcm_dispatch_jobs; DROP TABLE IF EXISTS fcm_device_tokens; DROP TYPE IF EXISTS "FcmJobStatus";` (tanpa menyentuh tabel `notifications`).
+2. Verifikasi tidak ada layanan aktif yang membaca atau menulis ke kedua tabel warisan tersebut.
+3. Hapus `src/db/legacy-fcm-schema.ts` serta referensinya di `src/db/drizzle.config.ts`, lalu jalankan migrasi eksplisit terotorisasi: `DROP TABLE IF EXISTS fcm_dispatch_jobs; DROP TABLE IF EXISTS fcm_device_tokens; DROP TYPE IF EXISTS "FcmJobStatus";` (tanpa menyentuh tabel `notifications`).
