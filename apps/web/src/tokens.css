@@ -31,8 +31,8 @@
   --dur-short: 220ms;
   --dur-long: 420ms;
 
-  --container: 1440px;
-  --gutter: 64px;
+  --container: 100%;
+  --gutter: clamp(20px, 2.2vw, 36px);
   --gap-columns: 32px;
   --section-gap-s: 120px;
   --section-gap: 144px;

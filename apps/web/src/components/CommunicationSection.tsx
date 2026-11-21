@@ -70,8 +70,36 @@ export function AnnouncementsPanel({
     }
   }
 
+  const listContent = loading ? (
+    <p className="class-empty" role="status">
+      Memuat pengumuman…
+    </p>
+  ) : announcements.length === 0 ? (
+    <p className="class-empty">Belum ada pengumuman di kelas ini.</p>
+  ) : (
+    <div className={role === 'MAHASISWA' ? 'announcements-grid' : 'workspace-items-stack'}>
+      {announcements.map((item) => (
+        <article className="workspace-item-card" key={item.id}>
+          <div className="workspace-item-header">
+            <div>
+              <h5>{item.title}</h5>
+              <div className="workspace-badges">
+                <span className="workspace-badge open">{item.authorName}</span>
+                <span className="workspace-badge">{roleLabel(item.authorRole)}</span>
+                <span className="workspace-meta-time">
+                  {new Date(item.createdAt).toLocaleString('id-ID')}
+                </span>
+              </div>
+            </div>
+          </div>
+          <p className="workspace-body-text">{item.body}</p>
+        </article>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="workspace-section">
+    <div className={role === 'DOSEN' ? 'workspace-split-layout' : 'workspace-section'}>
       {role === 'DOSEN' && (
         <form className="class-form" onSubmit={createAnnouncement}>
           <h4>Buat Pengumuman Kelas</h4>
@@ -81,7 +109,7 @@ export function AnnouncementsPanel({
           </label>
           <label>
             Isi pengumuman
-            <textarea name="body" rows={3} minLength={1} maxLength={15000} required />
+            <textarea name="body" rows={4} minLength={1} maxLength={15000} required />
           </label>
           <div>
             <button className="button primary inline-btn" disabled={busy}>
@@ -90,34 +118,7 @@ export function AnnouncementsPanel({
           </div>
         </form>
       )}
-
-      {loading ? (
-        <p className="class-empty" role="status">
-          Memuat pengumuman…
-        </p>
-      ) : announcements.length === 0 ? (
-        <p className="class-empty">Belum ada pengumuman di kelas ini.</p>
-      ) : (
-        <div className="workspace-items-stack">
-          {announcements.map((item) => (
-            <article className="workspace-item-card" key={item.id}>
-              <div className="workspace-item-header">
-                <div>
-                  <h5>{item.title}</h5>
-                  <div className="workspace-badges">
-                    <span className="workspace-badge open">{item.authorName}</span>
-                    <span className="workspace-badge">{roleLabel(item.authorRole)}</span>
-                    <span className="workspace-meta-time">
-                      {new Date(item.createdAt).toLocaleString('id-ID')}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <p className="workspace-body-text">{item.body}</p>
-            </article>
-          ))}
-        </div>
-      )}
+      <div className="workspace-section">{listContent}</div>
     </div>
   );
 }
@@ -242,7 +243,7 @@ export function ForumPanel({
   }
 
   return (
-    <div className="workspace-section">
+    <div className="workspace-split-layout">
       <form className="class-form" onSubmit={createTopic}>
         <h4>Mulai Topik Diskusi Baru</h4>
         <label>
@@ -251,7 +252,7 @@ export function ForumPanel({
         </label>
         <label>
           Pertanyaan atau bahasan
-          <textarea name="body" rows={3} minLength={1} maxLength={15000} required />
+          <textarea name="body" rows={4} minLength={1} maxLength={15000} required />
         </label>
         <div>
           <button className="button primary inline-btn" disabled={busy}>
@@ -260,14 +261,15 @@ export function ForumPanel({
         </div>
       </form>
 
-      {loading ? (
-        <p className="class-empty" role="status">
-          Memuat topik forum diskusi…
-        </p>
-      ) : topics.length === 0 ? (
-        <p className="class-empty">Belum ada topik diskusi. Mulai diskusi pertama di kelas ini.</p>
-      ) : (
-        <div className="workspace-items-stack">
+      <div className="workspace-section">
+        {loading ? (
+          <p className="class-empty" role="status">
+            Memuat topik forum diskusi…
+          </p>
+        ) : topics.length === 0 ? (
+          <p className="class-empty">Belum ada topik diskusi. Mulai diskusi pertama di kelas ini.</p>
+        ) : (
+          <div className="workspace-items-stack">
           {topics.map((topic) => {
             const canEditTopic = currentUser.id === topic.authorId && isWithinEditWindow(topic.createdAt);
             const topicWasEdited =
@@ -433,8 +435,9 @@ export function ForumPanel({
               </article>
             );
           })}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

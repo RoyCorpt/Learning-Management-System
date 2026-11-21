@@ -297,6 +297,30 @@
   margin-top: var(--space-sm);
 }
 
+.class-create-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: var(--space-md);
+  align-items: end;
+}
+
+.class-join-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.class-join-row > label {
+  flex: 1 1 360px;
+  min-width: 0;
+}
+
+.class-join-action {
+  flex: 0 0 auto;
+}
+
 .class-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -465,13 +489,38 @@
   justify-self: start;
 }
 
+@media (min-width: 1560px) {
+  .class-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1080px) {
   .class-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .class-create-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .class-create-row > .class-create-action {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 680px) {
+  .class-create-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .class-join-action,
+  .class-join-action .button,
+  .class-create-action,
+  .class-create-action .button {
+    width: 100%;
+  }
+
   .class-toolbar {
     flex-direction: column;
     align-items: stretch;

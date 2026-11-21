@@ -761,7 +761,7 @@ function ClassManagement({
       {role === 'DOSEN' ? (
         <form className="class-form subtle-form" onSubmit={createClass}>
           <h4>Buat kelas baru</h4>
-          <div className="workspace-two-col">
+          <div className="class-create-row">
             <label>
               Nama kelas
               <input name="name" minLength={1} required />
@@ -770,24 +770,26 @@ function ClassManagement({
               Deskripsi <span className="optional">(opsional)</span>
               <input name="description" maxLength={500} />
             </label>
-          </div>
-          <div>
-            <button className="button primary inline-btn" disabled={busy}>
-              {busy ? 'Menyimpan…' : 'Buat kelas'}
-            </button>
+            <div className="class-create-action">
+              <button className="button primary inline-btn" disabled={busy}>
+                {busy ? 'Menyimpan…' : 'Buat kelas'}
+              </button>
+            </div>
           </div>
         </form>
       ) : (
         <form className="class-form subtle-form" onSubmit={joinClass}>
           <h4>Gabung ke kelas baru</h4>
-          <label>
-            Kode undangan (43 karakter dari dosen)
-            <input name="invitationCode" autoComplete="off" minLength={43} maxLength={43} required />
-          </label>
-          <div>
-            <button className="button primary inline-btn" disabled={busy}>
-              {busy ? 'Memproses…' : 'Gabung kelas'}
-            </button>
+          <div className="class-join-row">
+            <label>
+              Kode undangan (43 karakter dari dosen)
+              <input name="invitationCode" autoComplete="off" minLength={43} maxLength={43} required />
+            </label>
+            <div className="class-join-action">
+              <button className="button primary inline-btn" disabled={busy}>
+                {busy ? 'Memproses…' : 'Gabung kelas'}
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -2529,7 +2531,7 @@ function AccountManagement({
                 ekspor daftar roster saat ini sebagai cadangan luring.
               </p>
             </div>
-            <label>
+            <label className="admin-full-span">
               File roster
               <input name="roster" type="file" accept=".csv,text/csv" required />
             </label>
