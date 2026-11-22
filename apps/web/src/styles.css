@@ -523,6 +523,26 @@ time,
 }
 
 
+.auth-aux-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.auth-reset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.auth-reset-actions .button {
+  width: auto;
+}
+
 .help-note {
   font-size: var(--text-xs);
   line-height: 1.55;

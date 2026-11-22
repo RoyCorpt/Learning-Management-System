@@ -1232,6 +1232,27 @@
   gap: var(--space-md);
 }
 
+.admin-accounts-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.admin-account-search {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.admin-account-role {
+  flex: 0 1 220px;
+  min-width: 180px;
+}
+
+.class-empty p {
+  margin: 0;
+}
+
 .filter-option {
   display: inline-flex;
   align-items: center;
@@ -1983,6 +2004,12 @@
   .admin-form-actions .button {
     grid-column: 1;
     width: 100%;
+  }
+
+  .admin-account-search,
+  .admin-account-role {
+    flex: 1 1 100%;
+    min-width: 0;
   }
 
   .quiz-prompt {

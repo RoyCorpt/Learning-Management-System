@@ -4,7 +4,7 @@
 
 ## Status
 **Versi 0.2.0 — Pembaruan baseline per 2026-11-22.**  
-Seluruh ruang lingkup MVP **Sprint 1 hingga Sprint 4** serta pembaruan antarmuka **SINTAKS** telah diimplementasikan pada database Cloud SQL PostgreSQL (`asia-southeast1`). Catatan kesiapan produksi (rate-limiter terdistribusi, uji *screen reader* audio, dan `FR-05`) tetap tercantum sebagai tindak lanjut operasional.
+Seluruh ruang lingkup MVP **Sprint 1 hingga Sprint 4**, pemulihan kata sandi (**Lupa Kata Sandi** `FR-05`), serta pembaruan antarmuka **SINTAKS** telah diimplementasikan pada database Cloud SQL PostgreSQL (`asia-southeast1`). Catatan kesiapan produksi (SMTP produksi, rate-limiter terdistribusi, dan uji *screen reader* audio) tetap tercantum sebagai tindak lanjut operasional.
 
 ## Architecture
 - `apps/web`: Frontend React + TypeScript + Vite (**SINTAKS**, tema editorial Dose terang & gelap, responsif `360px–1920px`).
@@ -15,10 +15,10 @@ Seluruh ruang lingkup MVP **Sprint 1 hingga Sprint 4** serta pembaruan antarmuka
 
 ## Working assumptions & implemented baselines
 - **Peran:** `ADMIN`, `DOSEN`, `MAHASISWA` dengan otorisasi *deny-by-default* berbasis sesi server-side dan kepemilikan/keanggotaan kelas.
-- **Autentikasi:** Login email/kata sandi (Argon2id) sebagai satu-satunya mekanisme masuk, sesi opaque + cookie `HttpOnly` dengan CSRF cookie, rate limit, registrasi mahasiswa berbasis klaim satu kali pada roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), serta pembuatan akun Dosen oleh Admin dengan kata sandi sementara.
+- **Autentikasi:** Login email/kata sandi (Argon2id) sebagai satu-satunya mekanisme masuk, sesi opaque + cookie `HttpOnly` dengan CSRF cookie, rate limit, registrasi mahasiswa berbasis klaim satu kali pada roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), pembuatan akun Dosen oleh Admin dengan kata sandi sementara, pemulihan **Lupa Kata Sandi** (`FR-05`) berbasis token CSPRNG terhash SHA-256 di PostgreSQL + SMTP (`nodemailer`, tanpa Firebase), serta pencarian dan filter peran pada menu **Akun aktif** Admin.
 - **Pengelolaan Kelas & Pembelajaran:** Kelas `OPEN`/`CLOSED` milik Dosen dengan kode undangan 43 karakter sekali tampil, pencarian & pengurutan kelas, topik & materi (`TEXT`, `LINK`, `FILE` batas **4 MB** per berkas), tugas dengan pengumpulan transaksional `Serializable` berversi (`Versi ke-N`), penilaian tugas `DRAFT`/`PUBLISHED` (`NUMERIC(5,2)`) & rekap nilai, kuis daring berwaktu dengan autosave & penilaian esai manual, pengumuman kelas, forum diskusi (jendela sunting 15 menit), notifikasi dalam aplikasi, dasbor ringkasan per peran, dan edit profil/kata sandi saat login.
 - **Domain Allowlist Mahasiswa:** Configurable via `STUDENT_EMAIL_DOMAINS` (default `unimed.ac.id,mhs.unimed.ac.id`).
-- **Backlog Terbuka:** Reset kata sandi publik (`FR-05` di luar sesi login) tetap ditunda di backlog karena membutuhkan penyedia email verifikasi.
+- **Pengiriman Email Reset:** Dikonfigurasi via `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, dan `PASSWORD_RESET_TTL_MINUTES` (default `30` menit).
 
 ## Important operational & production follow-up items
 1. Ganti store rate limiter in-memory dengan *shared store* (seperti Redis) sebelum menjalankan banyak instance API secara paralel.

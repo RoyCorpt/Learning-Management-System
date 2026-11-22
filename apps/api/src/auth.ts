@@ -1,12 +1,13 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Algorithm, hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
-import { and, asc, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, ilike, isNull, sql } from 'drizzle-orm';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { db } from '../../../src/db/index.js';
 import {
   auditEvents,
+  passwordResetTokens,
   sessions,
   studentRoster,
   users,
@@ -14,6 +15,7 @@ import {
   type Role,
 } from '../../../src/db/schema.js';
 import { env } from './config/env.js';
+import { buildPasswordResetUrl, sendPasswordResetEmail } from './lib/mailer.js';
 import { formatStudentRosterCsv, parseStudentRosterCsv, RosterCsvError } from './roster.js';
 
 const SESSION_COOKIE = 'lms_session';
@@ -89,8 +91,31 @@ const registrationLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: { code: 'REGISTRATION_RATE_LIMITED', message: 'Terlalu banyak permintaan. Coba lagi nanti.' } },
 });
+const forgotPasswordIpLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: { code: 'PASSWORD_RESET_RATE_LIMITED', message: 'Terlalu banyak permintaan atur ulang kata sandi. Coba lagi nanti.' } },
+});
+const forgotPasswordAccountLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  keyGenerator: (req) => `${ipKeyGenerator(req.ip ?? '')}:${digest(String(req.body?.email ?? '').trim().toLowerCase())}`,
+  message: { error: { code: 'PASSWORD_RESET_RATE_LIMITED', message: 'Terlalu banyak permintaan atur ulang kata sandi. Coba lagi nanti.' } },
+});
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 15,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: { code: 'PASSWORD_RESET_RATE_LIMITED', message: 'Terlalu banyak percobaan atur ulang kata sandi. Coba lagi nanti.' } },
+});
 
 class RegistrationUnavailableError extends Error {}
+class InvalidResetTokenError extends Error {}
 
 router.post('/register', registrationLimiter, async (req, res, next) => {
   try {
@@ -212,6 +237,182 @@ router.post('/login', loginIpLimiter, loginLimiter, async (req, res, next) => {
       },
       sessionToken: token,
       csrfToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordAccountLimiter, async (req, res, next) => {
+  try {
+    const input = z.object({ email: z.string().email().max(255) }).parse(req.body);
+    const email = input.email.trim().toLowerCase();
+    const genericMessage = 'Jika email terdaftar dan aktif, tautan atur ulang kata sandi telah dikirim.';
+
+    const foundUsers = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    const user = foundUsers[0];
+    if (!user || user.status !== 'ACTIVE') {
+      return res.status(200).json({ message: genericMessage });
+    }
+
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = digest(rawToken);
+    const expiresAt = new Date(Date.now() + env.PASSWORD_RESET_TTL_MINUTES * 60_000);
+
+    const createdToken = await db.transaction(async (tx) => {
+      await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(and(eq(passwordResetTokens.userId, user.id), isNull(passwordResetTokens.usedAt)));
+
+      const inserted = await tx
+        .insert(passwordResetTokens)
+        .values({
+          userId: user.id,
+          tokenHash,
+          expiresAt,
+        })
+        .returning({ id: passwordResetTokens.id });
+
+      await tx.insert(auditEvents).values({
+        action: 'AUTH_PASSWORD_RESET_REQUESTED',
+        actorId: user.id,
+        subjectId: user.id,
+      });
+
+      return inserted[0]!;
+    });
+
+    try {
+      await sendPasswordResetEmail({
+        to: user.email,
+        fullName: user.fullName,
+        resetUrl: buildPasswordResetUrl(rawToken),
+        expiresInMinutes: env.PASSWORD_RESET_TTL_MINUTES,
+      });
+    } catch (mailError) {
+      await db
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(passwordResetTokens.id, createdToken.id))
+        .catch(() => undefined);
+      throw mailError;
+    }
+
+    return res.status(200).json({ message: genericMessage });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/reset-password/verify', async (req, res, next) => {
+  try {
+    const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+    if (token.length < 16 || token.length > 300) {
+      return res.status(400).json({
+        error: { code: 'INVALID_RESET_TOKEN', message: 'Tautan atur ulang kata sandi tidak valid atau sudah kedaluwarsa.' },
+      });
+    }
+
+    const rows = await db
+      .select({ id: passwordResetTokens.id })
+      .from(passwordResetTokens)
+      .innerJoin(users, eq(passwordResetTokens.userId, users.id))
+      .where(
+        and(
+          eq(passwordResetTokens.tokenHash, digest(token)),
+          isNull(passwordResetTokens.usedAt),
+          gt(passwordResetTokens.expiresAt, new Date()),
+          eq(users.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+
+    if (!rows[0]) {
+      return res.status(400).json({
+        error: { code: 'INVALID_RESET_TOKEN', message: 'Tautan atur ulang kata sandi tidak valid atau sudah kedaluwarsa.' },
+      });
+    }
+
+    return res.status(200).json({ valid: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/reset-password', resetPasswordLimiter, async (req, res, next) => {
+  try {
+    const input = z.object({
+      token: z.string().trim().min(16).max(300),
+      newPassword: z.string().min(12).max(200),
+    }).parse(req.body);
+
+    const passwordHash = await argon2Hash(input.newPassword, passwordOptions);
+
+    try {
+      await db.transaction(async (tx) => {
+        const now = new Date();
+        const claimed = await tx
+          .update(passwordResetTokens)
+          .set({ usedAt: now })
+          .where(
+            and(
+              eq(passwordResetTokens.tokenHash, digest(input.token)),
+              isNull(passwordResetTokens.usedAt),
+              gt(passwordResetTokens.expiresAt, now),
+            ),
+          )
+          .returning({ id: passwordResetTokens.id, userId: passwordResetTokens.userId });
+
+        const tokenRecord = claimed[0];
+        if (!tokenRecord) {
+          throw new InvalidResetTokenError();
+        }
+
+        const updatedUsers = await tx
+          .update(users)
+          .set({
+            passwordHash,
+            mustChangePassword: false,
+            authVersion: sql`${users.authVersion} + 1`,
+            updatedAt: now,
+          })
+          .where(and(eq(users.id, tokenRecord.userId), eq(users.status, 'ACTIVE')))
+          .returning({ id: users.id });
+
+        if (updatedUsers.length !== 1) {
+          throw new InvalidResetTokenError();
+        }
+
+        await tx
+          .update(passwordResetTokens)
+          .set({ usedAt: now })
+          .where(and(eq(passwordResetTokens.userId, tokenRecord.userId), isNull(passwordResetTokens.usedAt)));
+
+        await tx
+          .update(sessions)
+          .set({ revokedAt: now })
+          .where(and(eq(sessions.userId, tokenRecord.userId), isNull(sessions.revokedAt)));
+
+        await tx.insert(auditEvents).values({
+          action: 'AUTH_PASSWORD_RESET_COMPLETED',
+          actorId: tokenRecord.userId,
+          subjectId: tokenRecord.userId,
+        });
+      });
+    } catch (error) {
+      if (error instanceof InvalidResetTokenError) {
+        return res.status(400).json({
+          error: { code: 'INVALID_RESET_TOKEN', message: 'Tautan atur ulang kata sandi tidak valid atau sudah kedaluwarsa.' },
+        });
+      }
+      throw error;
+    }
+
+    res.clearCookie(SESSION_COOKIE, cookieOptions(req));
+    res.clearCookie(CSRF_COOKIE, cookieOptions(req));
+    return res.status(200).json({
+      message: 'Kata sandi berhasil diatur ulang. Silakan masuk dengan kata sandi baru Anda.',
     });
   } catch (error) {
     next(error);
@@ -367,7 +568,7 @@ router.get('/admin/users', async (_req, res, next) => {
       })
       .from(users)
       .orderBy(desc(users.createdAt))
-      .limit(200);
+      .limit(1000);
     res.json({ users: rows });
   } catch (error) {
     next(error);

@@ -41,9 +41,32 @@ function parseTargetUrl(targetUrl: string): NavigationTarget | null {
   return { classId, tab, nonce: Date.now() };
 }
 
+function readResetTokenFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = new URLSearchParams(window.location.search).get('resetToken');
+  const trimmed = raw?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function clearResetTokenFromUrl() {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('resetToken')) return;
+  url.searchParams.delete('resetToken');
+  const search = url.searchParams.toString();
+  const nextUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
+  window.history.replaceState({}, '', nextUrl);
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [resetToken, setResetToken] = useState<string | null>(() => readResetTokenFromUrl());
+  const [resetTokenStatus, setResetTokenStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>(() =>
+    readResetTokenFromUrl() ? 'checking' : 'idle',
+  );
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(() =>
+    readResetTokenFromUrl() ? 'reset' : 'login',
+  );
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [navTarget, setNavTarget] = useState<NavigationTarget | null>(null);
@@ -86,6 +109,42 @@ export default function App() {
       .catch(() => setUser(null));
   }, []);
 
+  useEffect(() => {
+    if (!resetToken || user) return;
+    let active = true;
+    setResetTokenStatus('checking');
+    fetch(`${API}/auth/reset-password/verify?token=${encodeURIComponent(resetToken)}`, {
+      credentials: 'include',
+    })
+      .then((response) => {
+        if (!active) return;
+        setResetTokenStatus(response.ok ? 'valid' : 'invalid');
+      })
+      .catch(() => {
+        if (!active) return;
+        setResetTokenStatus('invalid');
+      });
+    return () => {
+      active = false;
+    };
+  }, [resetToken, user]);
+
+  function openLoginMode(nextMessage = '') {
+    clearResetTokenFromUrl();
+    setResetToken(null);
+    setResetTokenStatus('idle');
+    setMode('login');
+    setMessage(nextMessage);
+  }
+
+  function openForgotMode() {
+    clearResetTokenFromUrl();
+    setResetToken(null);
+    setResetTokenStatus('idle');
+    setMode('forgot');
+    setMessage('');
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -99,8 +158,32 @@ export default function App() {
         setMessage(result.message);
         setMode('login');
         formElement.reset();
+      } else if (mode === 'forgot') {
+        const result = await request('/auth/forgot-password', { email: String(body.email ?? '') });
+        setMessage(result.message);
+        formElement.reset();
+      } else if (mode === 'reset') {
+        const newPassword = String(body.newPassword ?? '');
+        const confirmPassword = String(body.confirmPassword ?? '');
+        if (newPassword !== confirmPassword) {
+          setMessage('Konfirmasi kata sandi baru tidak cocok.');
+          return;
+        }
+        if (!resetToken) {
+          setResetTokenStatus('invalid');
+          return;
+        }
+        const result = await request('/auth/reset-password', {
+          token: resetToken,
+          newPassword,
+        });
+        formElement.reset();
+        openLoginMode(result.message);
       } else {
         const result = await request('/auth/login', body);
+        clearResetTokenFromUrl();
+        setResetToken(null);
+        setResetTokenStatus('idle');
         setUser(result.user);
         formElement.reset();
       }
@@ -269,10 +352,7 @@ export default function App() {
                 <button
                   type="button"
                   className={mode === 'login' ? 'active' : ''}
-                  onClick={() => {
-                    setMode('login');
-                    setMessage('');
-                  }}
+                  onClick={() => openLoginMode('')}
                 >
                   Masuk
                 </button>
@@ -280,6 +360,9 @@ export default function App() {
                   type="button"
                   className={mode === 'register' ? 'active' : ''}
                   onClick={() => {
+                    clearResetTokenFromUrl();
+                    setResetToken(null);
+                    setResetTokenStatus('idle');
                     setMode('register');
                     setMessage('');
                   }}
@@ -287,43 +370,132 @@ export default function App() {
                   Daftar Mahasiswa
                 </button>
               </div>
-              <h2 id="form-title">{mode === 'login' ? 'Masuk ke akun' : 'Buat akun mahasiswa'}</h2>
+              <h2 id="form-title">
+                {mode === 'login'
+                  ? 'Masuk ke akun'
+                  : mode === 'register'
+                    ? 'Buat akun mahasiswa'
+                    : mode === 'forgot'
+                      ? 'Lupa kata sandi'
+                      : 'Atur ulang kata sandi'}
+              </h2>
               <p className="card-intro">
                 {mode === 'login'
                   ? 'Gunakan email kampus dan kata sandi Anda.'
-                  : 'Pendaftaran memerlukan data yang sesuai dengan roster kampus.'}
+                  : mode === 'register'
+                    ? 'Pendaftaran memerlukan data yang sesuai dengan roster kampus.'
+                    : mode === 'forgot'
+                      ? 'Masukkan email kampus terdaftar untuk menerima tautan pengaturan ulang kata sandi.'
+                      : 'Buat kata sandi baru minimal 12 karakter untuk mengakses akun SINTAKS Anda.'}
               </p>
-              <form onSubmit={submit}>
-                {mode === 'register' && (
-                  <label>
-                    Nomor Induk Mahasiswa
-                    <input name="nim" autoComplete="off" required maxLength={30} />
-                  </label>
-                )}
-                <label>
-                  Email kampus
-                  <input name="email" type="email" autoComplete="email" required maxLength={255} />
-                </label>
-                <label>
-                  Kata sandi
-                  <input
-                    name="password"
-                    type="password"
-                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                    required
-                    minLength={mode === 'register' ? 12 : 1}
-                    maxLength={200}
-                  />
-                </label>
-                {message && (
+
+              {mode === 'reset' && resetTokenStatus === 'checking' && (
+                <div className="feedback" role="status">
+                  Memeriksa tautan atur ulang kata sandi…
+                </div>
+              )}
+
+              {mode === 'reset' && (resetTokenStatus === 'invalid' || !resetToken) && (
+                <div>
                   <div className="feedback" role="status">
-                    {message}
+                    Tautan atur ulang kata sandi tidak valid atau sudah kedaluwarsa.
                   </div>
-                )}
-                <button className="button primary" disabled={busy}>
-                  {busy ? 'Memproses…' : mode === 'login' ? 'Masuk' : 'Kirim pendaftaran'}
-                </button>
-              </form>
+                  <div className="auth-reset-actions">
+                    <button type="button" className="button primary" onClick={openForgotMode}>
+                      Minta tautan baru
+                    </button>
+                    <button type="button" className="text-button" onClick={() => openLoginMode('')}>
+                      Kembali ke halaman masuk
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(mode === 'login' || mode === 'register' || mode === 'forgot' || (mode === 'reset' && resetTokenStatus === 'valid')) && (
+                <form onSubmit={submit}>
+                  {mode === 'register' && (
+                    <label>
+                      Nomor Induk Mahasiswa
+                      <input name="nim" autoComplete="off" required maxLength={30} />
+                    </label>
+                  )}
+                  {(mode === 'login' || mode === 'register' || mode === 'forgot') && (
+                    <label>
+                      Email kampus
+                      <input name="email" type="email" autoComplete="email" required maxLength={255} />
+                    </label>
+                  )}
+                  {(mode === 'login' || mode === 'register') && (
+                    <label>
+                      Kata sandi
+                      <input
+                        name="password"
+                        type="password"
+                        autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                        required
+                        minLength={mode === 'register' ? 12 : 1}
+                        maxLength={200}
+                      />
+                    </label>
+                  )}
+                  {mode === 'login' && (
+                    <div className="auth-aux-row">
+                      <button type="button" className="text-button" onClick={openForgotMode}>
+                        Lupa kata sandi?
+                      </button>
+                    </div>
+                  )}
+                  {mode === 'reset' && (
+                    <>
+                      <label>
+                        Kata sandi baru (minimal 12 karakter)
+                        <input
+                          name="newPassword"
+                          type="password"
+                          autoComplete="new-password"
+                          required
+                          minLength={12}
+                          maxLength={200}
+                        />
+                      </label>
+                      <label>
+                        Konfirmasi kata sandi baru
+                        <input
+                          name="confirmPassword"
+                          type="password"
+                          autoComplete="new-password"
+                          required
+                          minLength={12}
+                          maxLength={200}
+                        />
+                      </label>
+                    </>
+                  )}
+                  {message && (
+                    <div className="feedback" role="status">
+                      {message}
+                    </div>
+                  )}
+                  <button className="button primary" disabled={busy}>
+                    {busy
+                      ? 'Memproses…'
+                      : mode === 'login'
+                        ? 'Masuk'
+                        : mode === 'register'
+                          ? 'Kirim pendaftaran'
+                          : mode === 'forgot'
+                            ? 'Kirim tautan reset'
+                            : 'Simpan kata sandi baru'}
+                  </button>
+                  {(mode === 'forgot' || mode === 'reset') && (
+                    <div className="auth-aux-row">
+                      <button type="button" className="text-button" onClick={() => openLoginMode('')}>
+                        Kembali ke halaman masuk
+                      </button>
+                    </div>
+                  )}
+                </form>
+              )}
               {mode === 'login' && (
                 <p className="help-note">Belum memiliki akses? Hubungi Admin SINTAKS.</p>
               )}
@@ -2321,6 +2493,8 @@ function AccountManagement({
   const [message, setMessage] = useState('');
   const [section, setSection] = useState<'create' | 'roster' | 'accounts'>('create');
   const [showAllAccounts, setShowAllAccounts] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'DOSEN' | 'MAHASISWA' | 'ADMIN'>('ALL');
   const [busy, setBusy] = useState(false);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -2343,7 +2517,17 @@ function AccountManagement({
     { id: 'accounts', label: 'Akun aktif' },
   ] as const;
 
-  const visibleUsers = showAllAccounts ? users : users.filter((u) => u.status === 'ACTIVE');
+  const statusScopedUsers = showAllAccounts ? users : users.filter((u) => u.status === 'ACTIVE');
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleUsers = statusScopedUsers.filter((u) => {
+    if (roleFilter !== 'ALL' && u.role !== roleFilter) return false;
+    if (!normalizedQuery) return true;
+    return (
+      u.fullName.toLowerCase().includes(normalizedQuery) ||
+      u.email.toLowerCase().includes(normalizedQuery)
+    );
+  });
+  const hasActiveFilters = normalizedQuery.length > 0 || roleFilter !== 'ALL';
 
   function moveTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const next =
@@ -2524,7 +2708,10 @@ function AccountManagement({
             <div className="admin-accounts-toolbar">
               <div>
                 <h4>Akun aktif</h4>
-                <p>{visibleUsers.length} akun ditampilkan</p>
+                <p className="class-filter-meta">
+                  Menampilkan {visibleUsers.length} dari {statusScopedUsers.length}{' '}
+                  {showAllAccounts ? 'akun' : 'akun aktif'}
+                </p>
               </div>
               <label className="filter-option">
                 <input
@@ -2533,6 +2720,35 @@ function AccountManagement({
                   onChange={(event) => setShowAllAccounts(event.target.checked)}
                 />{' '}
                 Tampilkan semua status
+              </label>
+            </div>
+            <div className="admin-accounts-filters">
+              <label className="field-label admin-account-search">
+                Cari akun
+                <input
+                  type="search"
+                  className="sintaks-input"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Cari nama atau email akun…"
+                  aria-label="Cari akun berdasarkan nama atau email"
+                />
+              </label>
+              <label className="field-label admin-account-role">
+                Filter peran
+                <select
+                  className="sintaks-select"
+                  value={roleFilter}
+                  onChange={(event) =>
+                    setRoleFilter(event.target.value as 'ALL' | 'DOSEN' | 'MAHASISWA' | 'ADMIN')
+                  }
+                  aria-label="Filter akun berdasarkan peran"
+                >
+                  <option value="ALL">Semua peran</option>
+                  <option value="DOSEN">Dosen</option>
+                  <option value="MAHASISWA">Mahasiswa</option>
+                  <option value="ADMIN">Admin</option>
+                </select>
               </label>
             </div>
             <div
@@ -2588,7 +2804,31 @@ function AccountManagement({
                   ))}
                 </tbody>
               </table>
-              {visibleUsers.length === 0 && <p className="class-empty">Belum ada akun aktif.</p>}
+              {visibleUsers.length === 0 && (
+                <div className="class-empty">
+                  <p>
+                    {hasActiveFilters
+                      ? 'Tidak ada akun yang sesuai dengan pencarian atau filter peran saat ini.'
+                      : showAllAccounts
+                        ? 'Belum ada akun terdaftar.'
+                        : 'Belum ada akun aktif.'}
+                  </p>
+                  {hasActiveFilters && (
+                    <div className="class-empty-actions">
+                      <button
+                        type="button"
+                        className="button secondary inline-btn"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setRoleFilter('ALL');
+                        }}
+                      >
+                        Reset pencarian &amp; filter
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

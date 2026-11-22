@@ -31,9 +31,11 @@
     "esbuild@0.25.12": true
   },
   "dependencies": {
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",
     "drizzle-orm": "^0.45.4",
+    "nodemailer": "^10.6.1",
     "pg": "^8.23.1"
   }
 }

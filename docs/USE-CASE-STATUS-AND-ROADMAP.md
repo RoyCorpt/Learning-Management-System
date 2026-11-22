@@ -7,10 +7,9 @@ Dokumen ini memetakan seluruh 18 use case (`UC-01`–`UC-18`) terhadap implement
 
 ## Ringkasan status saat ini
 
-- **Selesai:** 15 use case (`UC-02`, `UC-05`, `UC-06`, `UC-07`, `UC-08`, `UC-09`, `UC-10`, `UC-11`, `UC-12`, `UC-13`, `UC-14`, `UC-15`, `UC-16`, `UC-17`, `UC-18`).
+- **Selesai:** 16 use case (`UC-02`, `UC-03`, `UC-05`, `UC-06`, `UC-07`, `UC-08`, `UC-09`, `UC-10`, `UC-11`, `UC-12`, `UC-13`, `UC-14`, `UC-15`, `UC-16`, `UC-17`, `UC-18`).
 - **Diselaraskan dengan keputusan tim (`CR-02`, `DEC-S2-01`) / Selesai sesuai kebijakan:** 2 use case (`UC-01`, `UC-04`).
-- **Sebagian (tersisa `FR-05` backlog):** 1 use case (`UC-03` — ubah profil & ganti kata sandi saat login selesai; reset kata sandi publik tanpa login `FR-05` tetap di backlog).
-- **Belum dimulai:** 0 use case.
+- **Sebagian / Belum dimulai:** 0 use case.
 
 ## Pemetaan 18 use case
 
@@ -18,8 +17,8 @@ Dokumen ini memetakan seluruh 18 use case (`UC-01`–`UC-18`) terhadap implement
 |---|---|---|---|
 | UC-01 | Mendaftar akun — FR-01, FR-02 | **Selesai (sesuai CR-02)** | Mahasiswa mendaftar dengan NIM + email kampus melalui klaim satu kali pada roster CSV (`PENDING` → aktivasi Admin). Sesuai `CR-02`, akun Dosen dibuat Admin (tidak mendaftar sendiri). |
 | UC-02 | Login dan logout — FR-03 | **Selesai** | Login email/sandi (Argon2id), sesi database opaque + cookie `HttpOnly`, CSRF cookie, rate limit, dan logout terimplementasi sebagai satu-satunya alur autentikasi. |
-| UC-03 | Mengelola profil dan memulihkan kata sandi — FR-04, FR-05 | **Sebagian (`FR-04` selesai; `FR-05` backlog)** | Pengguna aktif dapat mengedit nama tampilan dan mengganti kata sandi secara mandiri melalui `PATCH /api/users/me/profile` dan banner profil (`ProfileBanner`). Reset kata sandi publik (`FR-05`) ditunda karena memerlukan kanal email verifikasi. |
-| UC-04 | Menyetujui/menonaktifkan akun dan mengelola kelas — FR-07, FR-12 | **Selesai (sesuai DEC-S2-01)** | Admin membuat akun Dosen, mengimpor roster CSV, serta mengelola status (`ACTIVE`/`INACTIVE`/`PENDING`) dan peran dengan proteksi Admin aktif terakhir. Sesuai `DEC-S2-01`, Dosen membuat dan memiliki kelasnya sendiri (bukan penugasan manual oleh Admin). |
+| UC-03 | Mengelola profil dan memulihkan kata sandi — FR-04, FR-05 | **Selesai (`FR-04` & `FR-05`)** | Pengguna aktif dapat mengedit nama tampilan dan mengganti kata sandi secara mandiri melalui `PATCH /api/users/me/profile` dan banner profil (`ProfileBanner`). Pemulihan **Lupa Kata Sandi** (`FR-05`) terimplementasi di backend tanpa Firebase (`POST /auth/forgot-password`, `GET /auth/reset-password/verify`, `POST /auth/reset-password`) dengan token CSPRNG tersimpan hash SHA-256 sekali pakai di tabel `password_reset_tokens` dan pengiriman tautan melalui SMTP (`nodemailer`). |
+| UC-04 | Menyetujui/menonaktifkan akun dan mengelola kelas — FR-07, FR-12 | **Selesai (sesuai DEC-S2-01)** | Admin membuat akun Dosen, mengimpor roster CSV, mencari & memfilter akun berdasarkan peran/status, serta mengelola status (`ACTIVE`/`INACTIVE`/`PENDING`) dan peran dengan proteksi Admin aktif terakhir. Sesuai `DEC-S2-01`, Dosen membuat dan memiliki kelasnya sendiri (bukan penugasan manual oleh Admin). |
 | UC-05 | Mengelola kelas dan keanggotaan — FR-09, FR-11 | **Selesai** | Dosen dapat membuat, mengedit, menutup kelas (`OPEN`/`CLOSED`), menerbitkan/merotasi kode undangan 43 karakter sekali tampil, melihat anggota, serta mencari/mengurutkan daftar kelas. |
 | UC-06 | Bergabung ke kelas dengan kode — FR-10 | **Selesai** | Mahasiswa `ACTIVE` bergabung ke kelas `OPEN` memakai kode undangan; kelas `CLOSED` menolak pendaftaran baru. |
 | UC-07 | Mengelola topik dan materi — FR-14, FR-15, FR-16 | **Selesai (Sprint 3)** | Dosen mengelola topik (`topics`) serta materi (`TEXT`, `LINK`, `FILE` maks. 4 MB) lengkap dengan kontrol draf/publikasi. |
@@ -37,7 +36,7 @@ Dokumen ini memetakan seluruh 18 use case (`UC-01`–`UC-18`) terhadap implement
 
 ## Langkah lanjutan & backlog pasca-MVP
 
-1. **Reset kata sandi publik (`FR-05`):** Rancang token reset sekali pakai + integrasi layanan email apabila kebutuhan lupa sandi di luar sesi login diprioritaskan.
+1. **Konfigurasi SMTP produksi:** Atur variabel lingkungan `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, serta `WEB_ORIGIN` di lingkungan produksi untuk pengiriman email **Lupa Kata Sandi**.
 2. **Kesiapan produksi multi-instance:** Ganti penyimpanan rate limit in-memory dengan *shared store* (seperti Redis), verifikasi kebijakan origin/HTTPS/cookie pada deployment produksi, serta uji aksesibilitas audio *screen reader*.
 
 Rujukan lengkap pelaksanaan Sprint 3 dan Sprint 4 tersedia di [SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md](SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md).

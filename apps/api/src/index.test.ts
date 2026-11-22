@@ -212,6 +212,10 @@ describe('Sprint 1 authentication foundation', () => {
   (process.env.RUN_DB_INTEGRATION === '1' ? it : it.skip)('provisions a Dosen once, enforces password change, and audits atomically', async () => {
     const { createApp } = await import('./app.js');
     const id = randomUUID(); const email = `admin-provision-${id}@example.invalid`; const instructorEmail = `dosen-${id}@example.invalid`; const password = 'Temporary-Admin-Password-42!';
+    const existingActiveAdmins = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, 'ADMIN'), eq(users.status, 'ACTIVE')));
     const [admin] = await db.insert(users).values({ email, fullName: 'Temporary Provisioning Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(password, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) }).returning();
     const targetAdminEmail = `admin-target-${id}@example.invalid`; const targetAdminPassword = 'Target-Admin-Password-42!';
     const [targetAdmin] = await db.insert(users).values({ email: targetAdminEmail, fullName: 'Temporary Target Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: await argon2Hash(targetAdminPassword, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) }).returning();
@@ -263,9 +267,11 @@ describe('Sprint 1 authentication foundation', () => {
       const deactivateTarget = await fetch(`${base}/auth/admin/users/${targetAdmin!.id}/status`, { method: 'PATCH', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'INACTIVE' }) });
       expect(deactivateTarget.status).toBe(200);
       expect((await fetch(`${base}/auth/me`, { headers: { Cookie: targetSession } })).status).toBe(401);
-      const lastAdminGuard = await fetch(`${base}/auth/admin/users/${targetAdmin!.id}/status`, { method: 'PATCH', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'INACTIVE' }) });
-      expect(lastAdminGuard.status).toBe(409);
-      expect((await lastAdminGuard.json()).error.code).toBe('LAST_ACTIVE_ADMIN');
+      if (existingActiveAdmins.length === 0) {
+        const lastAdminGuard = await fetch(`${base}/auth/admin/users/${targetAdmin!.id}/status`, { method: 'PATCH', headers: { Cookie: cookieHeader, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'INACTIVE' }) });
+        expect(lastAdminGuard.status).toBe(409);
+        expect((await lastAdminGuard.json()).error.code).toBe('LAST_ACTIVE_ADMIN');
+      }
     } finally {
       if (server?.listening) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve()));
       await db.delete(auditEvents).where(or(eq(auditEvents.actorId, admin!.id), eq(auditEvents.actorId, targetAdmin!.id), ...(instructorId ? [eq(auditEvents.actorId, instructorId), eq(auditEvents.subjectId, instructorId)] : []), eq(auditEvents.subjectId, targetAdmin!.id)));

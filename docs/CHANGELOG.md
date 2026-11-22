@@ -2,6 +2,15 @@
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
+## 2026-11-22 — Fitur Lupa Kata Sandi (token backend non-Firebase) & pencarian/filter akun Admin (`SINTAKS`)
+
+- **Lupa Kata Sandi Tanpa Firebase (`src/db/schema.ts`, `apps/api/src/lib/mailer.ts`, `apps/api/src/auth.ts`, `apps/api/src/config/env.ts`, `.env.example`, `apps/web/src/App.tsx`, `apps/web/src/styles.css`):**
+  - Menambahkan tabel PostgreSQL `password_reset_tokens` (`token_hash` SHA-256 unik, `expires_at`, `used_at`) dan menyinkronkannya ke Cloud SQL.
+  - Mengimplementasikan endpoint `POST /auth/forgot-password` (tahan enumerasi email, rate limit per IP dan per akun, menonaktifkan token aktif sebelumnya, pencatatan audit `AUTH_PASSWORD_RESET_REQUESTED`), `GET /auth/reset-password/verify`, dan `POST /auth/reset-password` (klaim atomik sekali pakai, pembaruan hash Argon2id, pencabutan seluruh sesi aktif, inkremen `auth_version`, pencatatan audit `AUTH_PASSWORD_RESET_COMPLETED`).
+  - Menambahkan pengirim email SMTP `nodemailer` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `PASSWORD_RESET_TTL_MINUTES`) serta tautan `Lupa kata sandi?`, formulir permintaan reset, dan formulir kata sandi baru berbasis `?resetToken=...` di kartu autentikasi.
+- **Pencarian & Filter Peran Menu "Akun aktif" Admin (`apps/web/src/App.tsx`, `apps/web/src/workspace.css`, `apps/api/src/auth.ts`):**
+  - Menambahkan kolom pencarian (`Cari akun` berdasarkan nama atau email) serta filter peran (`Semua peran`, `Dosen`, `Mahasiswa`, `Admin`) di tab **Akun aktif** halaman Admin lengkap dengan penghitung hasil dan tombol `Reset pencarian & filter`, serta memperluas batas muat `GET /auth/admin/users` hingga 1.000 akun.
+
 ## 2026-11-22 — Latar kampus halaman masuk, perluasan teks hero kiri & penghapusan permanen Google Sign-In (`SINTAKS`)
 
 - **Latar Belakang & Tipografi Halaman Masuk (`apps/web/src/App.tsx`, `apps/web/src/styles.css`):** Menambahkan foto gerbang kampus Universitas Negeri Medan (`/assets/aistudio/hero-section-background_11499e54.jpg`) sebagai latar penuh `.page-main--auth` dengan lapisan gradien terkalibrasi untuk mode terang maupun mode gelap agar kontras teks tetap tajam, memperjelas permukaan kaca kartu masuk `.auth-card`, serta memperbesar ukuran teks hero sisi kiri (`.welcome h1`, `.welcome > p`, `.welcome-statement`).

@@ -119,6 +119,27 @@ export const sessions = pgTable(
   (table) => [index('sessions_user_id_revoked_at_expires_at_idx').on(table.userId, table.revokedAt, table.expiresAt)],
 );
 
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: char('token_hash', { length: 64 }).notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('password_reset_tokens_user_id_used_at_expires_at_idx').on(
+      table.userId,
+      table.usedAt,
+      table.expiresAt,
+    ),
+  ],
+);
+
 export const auditEvents = pgTable(
   'audit_events',
   {
@@ -404,6 +425,7 @@ export const notifications = pgTable(
 
 export const usersRelations = relations(users, ({ many, one }) => ({
   sessions: many(sessions),
+  passwordResetTokens: many(passwordResetTokens),
   ownedClasses: many(classes),
   memberships: many(memberships),
   submissions: many(submissions),
@@ -447,6 +469,13 @@ export const membershipsRelations = relations(memberships, ({ one }) => ({
 export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, {
     fields: [sessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [passwordResetTokens.userId],
     references: [users.id],
   }),
 }));

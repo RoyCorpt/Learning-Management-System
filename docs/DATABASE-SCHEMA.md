@@ -26,6 +26,7 @@ Skema aktif PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.
 | `users` | Email ternormalisasi unik, kolom `uid` opsional (`@deprecated`, retensi non-destruktif pasca penghapusan Google Sign-In), `password_hash` Argon2id (dikecualikan dari respons API), `full_name`, `role`, `status`, `auth_version`, dan `must_change_password`. |
 | `student_roster` | `nim` dan `email` unik, `full_name`, `registration_eligible`, `registered_at`, dan `registered_user_id` untuk klaim pendaftaran mahasiswa satu kali. |
 | `sessions` | FK `user_id` (cascade delete), `token_hash` dan `csrf_hash` SHA-256, `expires_at`, `revoked_at`. Token mentah tidak disimpan di database. |
+| `password_reset_tokens` | FK `user_id` (cascade delete), `token_hash` SHA-256 unik (token mentah tidak pernah disimpan), `expires_at`, `used_at` sekali pakai, dan indeks `(user_id, used_at, expires_at)` untuk fitur **Lupa Kata Sandi** tanpa Firebase. |
 | `audit_events` | `actor_id`, `action`, `subject_id`, `details` (JSONB), `created_at` untuk jejak autentikasi, tata kelola akun, kelas, serta koreksi nilai. |
 
 ### 2. Kelas & Keanggotaan (Sprint 2)
