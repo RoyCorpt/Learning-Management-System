@@ -106,6 +106,18 @@ describe('Sprint 1 authentication foundation', () => {
       const response = await fetch(`http://127.0.0.1:${address.port}/auth/me`);
       expect(response.status).toBe(401);
       expect((await response.json()).error.code).toBe('UNAUTHENTICATED');
+      const bearerAttempt = await fetch(`http://127.0.0.1:${address.port}/auth/me`, {
+        headers: { Authorization: 'Bearer fake-firebase-id-token' },
+      });
+      expect(bearerAttempt.status).toBe(401);
+      expect((await bearerAttempt.json()).error.code).toBe('UNAUTHENTICATED');
+      const removedGoogleEndpoint = await fetch(`http://127.0.0.1:${address.port}/auth/firebase`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer fake-firebase-id-token' },
+        body: JSON.stringify({}),
+      });
+      expect(removedGoogleEndpoint.status).toBe(404);
+      expect((await removedGoogleEndpoint.json()).error.code).toBe('NOT_FOUND');
     } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
   });
 

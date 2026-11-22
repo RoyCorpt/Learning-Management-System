@@ -1,6 +1,6 @@
 # Status Use Case dan Roadmap SINTAKS (LMS Kampus PTIK)
 
-**Tanggal pembaruan:** 2026-11-16  
+**Tanggal pembaruan:** 2026-11-22  
 **Status dokumen:** Status terkini setelah selesainya **Sprint 1–4** dan pembaruan antarmuka **SINTAKS**.
 
 Dokumen ini memetakan seluruh 18 use case (`UC-01`–`UC-18`) terhadap implementasi aktif di repositori saat ini beserta keputusan desain tim yang berlaku.
@@ -16,8 +16,8 @@ Dokumen ini memetakan seluruh 18 use case (`UC-01`–`UC-18`) terhadap implement
 
 | ID | Use case / FR | Status | Implementasi & catatan saat ini |
 |---|---|---|---|
-| UC-01 | Mendaftar akun — FR-01, FR-02 | **Selesai (sesuai CR-02)** | Mahasiswa mendaftar dengan NIM + email kampus melalui klaim satu kali pada roster CSV (`PENDING` → aktivasi Admin), plus dukungan Google Sign-In (Firebase). Sesuai `CR-02`, akun Dosen dibuat Admin (tidak mendaftar sendiri). |
-| UC-02 | Login dan logout — FR-03 | **Selesai** | Login email/sandi (Argon2id), Google Sign-In, sesi database, CSRF cookie, rate limit, dan logout terimplementasi. |
+| UC-01 | Mendaftar akun — FR-01, FR-02 | **Selesai (sesuai CR-02)** | Mahasiswa mendaftar dengan NIM + email kampus melalui klaim satu kali pada roster CSV (`PENDING` → aktivasi Admin). Sesuai `CR-02`, akun Dosen dibuat Admin (tidak mendaftar sendiri). |
+| UC-02 | Login dan logout — FR-03 | **Selesai** | Login email/sandi (Argon2id), sesi database opaque + cookie `HttpOnly`, CSRF cookie, rate limit, dan logout terimplementasi sebagai satu-satunya alur autentikasi. |
 | UC-03 | Mengelola profil dan memulihkan kata sandi — FR-04, FR-05 | **Sebagian (`FR-04` selesai; `FR-05` backlog)** | Pengguna aktif dapat mengedit nama tampilan dan mengganti kata sandi secara mandiri melalui `PATCH /api/users/me/profile` dan banner profil (`ProfileBanner`). Reset kata sandi publik (`FR-05`) ditunda karena memerlukan kanal email verifikasi. |
 | UC-04 | Menyetujui/menonaktifkan akun dan mengelola kelas — FR-07, FR-12 | **Selesai (sesuai DEC-S2-01)** | Admin membuat akun Dosen, mengimpor roster CSV, serta mengelola status (`ACTIVE`/`INACTIVE`/`PENDING`) dan peran dengan proteksi Admin aktif terakhir. Sesuai `DEC-S2-01`, Dosen membuat dan memiliki kelasnya sendiri (bukan penugasan manual oleh Admin). |
 | UC-05 | Mengelola kelas dan keanggotaan — FR-09, FR-11 | **Selesai** | Dosen dapat membuat, mengedit, menutup kelas (`OPEN`/`CLOSED`), menerbitkan/merotasi kode undangan 43 karakter sekali tampil, melihat anggota, serta mencari/mengurutkan daftar kelas. |

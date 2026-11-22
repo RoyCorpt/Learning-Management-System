@@ -5,8 +5,8 @@
 Portal pembelajaran kampus (**SINTAKS**, sebelumnya *LMS Kampus PTIK*) yang dibangun dengan arsitektur monorepo TypeScript. Implementasi saat ini mencakup seluruh ruang lingkup MVP **Sprint 1–4** beserta redesain antarmuka editorial terang **SINTAKS** dan berjalan pada database PostgreSQL (Cloud SQL `asia-southeast1`).
 
 ## Stack
-- **Frontend:** React + TypeScript + Vite (`apps/web`), responsif `360px–1920px`, antarmuka Bahasa Indonesia, tipografi Newsreader + Inter.
-- **Backend:** Node.js + Express + TypeScript (`apps/api`), autentikasi Argon2id + sesi opaque berbasis database + Firebase Auth (Google Sign-In) + proteksi CSRF & RBAC (`ADMIN`, `DOSEN`, `MAHASISWA`).
+- **Frontend:** React + TypeScript + Vite (`apps/web`), responsif `360px–1920px`, antarmuka Bahasa Indonesia, tipografi Schibsted Grotesk, Instrument Sans, dan DM Mono.
+- **Backend:** Node.js + Express + TypeScript (`apps/api`), autentikasi email & kata sandi Argon2id + sesi opaque berbasis database + proteksi CSRF & RBAC (`ADMIN`, `DOSEN`, `MAHASISWA`).
 - **Database & ORM:** PostgreSQL (Cloud SQL `asia-southeast1`) dengan **Drizzle ORM** (`src/db/`).
 - **Validasi & Shared Types:** Zod + `packages/shared`.
 
@@ -50,13 +50,13 @@ npm run db:bootstrap-admin -w @lms/api
 - `apps/api` — layanan API Express + TypeScript
 - `src/db` — skema Drizzle ORM aktif (`schema.ts`), koneksi database (`index.ts`, `config.ts`), konfigurasi Drizzle (`drizzle.config.ts`), dan definisi retensi objek historis warisan (`legacy-fcm-schema.ts` khusus `db:push`)
 - `packages/shared` — tipe bersama antar workspace
-- `public` — aset statis termasuk logo resmi SINTAKS (`/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png`)
+- `public` — aset statis termasuk logo resmi SINTAKS (`/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png`) dan latar kampus halaman masuk (`/assets/aistudio/hero-section-background_11499e54.jpg`)
 - `docs` — dokumentasi baseline, skema, roadmap use case, changelog, dan laporan Sprint 0–4
 
 ## Status website saat ini
 
-**Per 2026-11-21:** Seluruh alur MVP **Sprint 1 hingga Sprint 4** serta redesain **SINTAKS** telah diimplementasikan dan aktif di server (dengan notifikasi dalam aplikasi berbasis PostgreSQL serta Firebase Auth Google Sign-In; tanpa push browser FCM/VAPID):
-- **Sprint 1 (Identitas & Tata Kelola Akun):** Login/logout email & kata sandi (Argon2id), masuk dengan Google (Firebase Authentication), registrasi mahasiswa berbasis klaim satu kali terhadap roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), pembuatan akun Dosen dengan kata sandi sementara, perubahan kata sandi wajib/mandiri, dan tata kelola peran/status akun dengan perlindungan Admin aktif terakhir.
+**Per 2026-11-22:** Seluruh alur MVP **Sprint 1 hingga Sprint 4** serta redesain **SINTAKS** telah diimplementasikan dan aktif di server (dengan autentikasi email & kata sandi Argon2id sebagai metode masuk utama serta notifikasi dalam aplikasi berbasis PostgreSQL; tanpa Google Sign-In/Firebase dan tanpa push browser FCM/VAPID):
+- **Sprint 1 (Identitas & Tata Kelola Akun):** Login/logout email & kata sandi (Argon2id), sesi opaque + cookie `HttpOnly` dengan token CSRF, registrasi mahasiswa berbasis klaim satu kali terhadap roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), pembuatan akun Dosen dengan kata sandi sementara, perubahan kata sandi wajib/mandiri, dan tata kelola peran/status akun dengan perlindungan Admin aktif terakhir.
 - **Sprint 2 (Kelas & Keanggotaan):** Dosen membuat, mengubah, menutup kelas (`OPEN`/`CLOSED`), menerbitkan/merotasi kode undangan 43 karakter sekali tampil, dan melihat daftar anggota; mahasiswa `ACTIVE` bergabung ke kelas `OPEN` menggunakan kode undangan; dilengkapi pencarian (`Cari kelas`) dan pengurutan (`Terbaru dibuat`, `Nama (A–Z)`, `Status`).
 - **Sprint 3 (Topik, Materi, Tugas & Pengumpulan):** Manajemen topik dan materi (`TEXT`, `LINK`, `FILE` maks. 4 MB), publikasi materi draf/terbit, pembuatan tugas dengan tenggat opsional dan kebijakan keterlambatan (`allowLate`), serta pengumpulan/pengiriman ulang tugas oleh mahasiswa di dalam transaksi serializable dengan pelacakan `Versi ke-N` dan status `Tepat waktu` / `Terlambat`.
 - **Sprint 4 (Penilaian, Kuis, Komunikasi, Notifikasi & Dasbor):**

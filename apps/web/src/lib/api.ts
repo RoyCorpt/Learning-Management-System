@@ -260,16 +260,10 @@ export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const rawApiUrl = (import.meta.env.VITE_API_URL ?? '').trim();
 export const API = typeof window !== 'undefined' && window.location.port !== '5173' ? '' : rawApiUrl.replace(/\/$/, '');
 
-let firebaseIdToken: string | null = null;
 let memorySessionToken: string | null = null;
 let memoryCsrfToken: string | null = null;
 
-export function setFirebaseToken(token: string | null) {
-  firebaseIdToken = token;
-}
-
 export function clearAuthMemory() {
-  firebaseIdToken = null;
   memorySessionToken = null;
   memoryCsrfToken = null;
 }
@@ -280,11 +274,9 @@ function csrf() {
 
 export async function request(path: string, body?: unknown, method = 'POST') {
   const csrfHeader = decodeURIComponent(csrf()) || memoryCsrfToken || '';
-  const authHeaders: Record<string, string> = firebaseIdToken
-    ? { Authorization: `Bearer ${firebaseIdToken}` }
-    : memorySessionToken
-      ? { Authorization: `Session ${memorySessionToken}` }
-      : {};
+  const authHeaders: Record<string, string> = memorySessionToken
+    ? { Authorization: `Session ${memorySessionToken}` }
+    : {};
   const response = await fetch(`${API}${path}`, {
     method,
     credentials: 'include',
@@ -302,7 +294,7 @@ export async function request(path: string, body?: unknown, method = 'POST') {
       : data?.error?.message ?? data?.message ?? 'Permintaan gagal. Coba kembali.';
     throw new Error(errMsg);
   }
-  if (data && typeof data === 'object' && (path === '/auth/login' || path === '/auth/firebase')) {
+  if (data && typeof data === 'object' && path === '/auth/login') {
     if (typeof data.sessionToken === 'string') memorySessionToken = data.sessionToken;
     if (typeof data.csrfToken === 'string') memoryCsrfToken = data.csrfToken;
   }
@@ -359,11 +351,9 @@ export function readFileAsAttachment(file: File): Promise<AttachmentPayload> {
 }
 
 export async function downloadFile(path: string, fallbackName: string) {
-  const authHeaders: Record<string, string> = firebaseIdToken
-    ? { Authorization: `Bearer ${firebaseIdToken}` }
-    : memorySessionToken
-      ? { Authorization: `Session ${memorySessionToken}` }
-      : {};
+  const authHeaders: Record<string, string> = memorySessionToken
+    ? { Authorization: `Session ${memorySessionToken}` }
+    : {};
   const response = await fetch(`${API}${path}`, {
     method: 'GET',
     credentials: 'include',

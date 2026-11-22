@@ -53,6 +53,7 @@ export type NotificationType = (typeof notificationTypeEnum.enumValues)[number];
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
+  /** @deprecated Historical nullable column from retired Google Sign-In; preserved non-destructively. */
   uid: text('uid').unique(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),

@@ -457,14 +457,6 @@ userProfileRouter.patch('/me/profile', async (req: DashboardRequest, res: Respon
 
     let nextPasswordHash: string | undefined;
     if (input.newPassword !== undefined) {
-      if (currentUser.passwordHash.startsWith('!firebase-oauth:')) {
-        return res.status(400).json({
-          error: {
-            code: 'OAUTH_MANAGED_ACCOUNT',
-            message: 'Akun ini masuk menggunakan Google; kata sandi dikelola melalui Google.',
-          },
-        });
-      }
       if (!input.currentPassword) {
         return res.status(400).json({
           error: { code: 'INVALID_INPUT', message: 'Kata sandi saat ini wajib diisi.' },

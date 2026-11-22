@@ -2,6 +2,14 @@
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
+## 2026-11-22 — Latar kampus halaman masuk, perluasan teks hero kiri & penghapusan permanen Google Sign-In (`SINTAKS`)
+
+- **Latar Belakang & Tipografi Halaman Masuk (`apps/web/src/App.tsx`, `apps/web/src/styles.css`):** Menambahkan foto gerbang kampus Universitas Negeri Medan (`/assets/aistudio/hero-section-background_11499e54.jpg`) sebagai latar penuh `.page-main--auth` dengan lapisan gradien terkalibrasi untuk mode terang maupun mode gelap agar kontras teks tetap tajam, memperjelas permukaan kaca kartu masuk `.auth-card`, serta memperbesar ukuran teks hero sisi kiri (`.welcome h1`, `.welcome > p`, `.welcome-statement`).
+- **Penghapusan Google Sign-In & Firebase Auth (`apps/web`, `apps/api`, `src/db`, `package.json`, `docs/`):**
+  - Menghapus tombol `Masuk dengan Google`, alur popup `signInWithPopup`/`signOut`, `apps/web/src/lib/firebase.ts`, serta token Bearer Firebase di `apps/web/src/lib/api.ts` sehingga masuk email & kata sandi (Argon2id) menjadi satu-satunya metode autentikasi.
+  - Menghapus endpoint `POST /auth/firebase`, verifikasi Bearer token Firebase ID pada middleware `authenticate`, pengecualian bypass `csrf()` bagi `firebaseAuth`, `apps/api/src/lib/firebase-admin.ts`, `src/db/users.ts` (`getOrCreateUser`), pemeriksaan `!firebase-oauth:` di `apps/api/src/dashboard.ts`, `firebase-applet-config.json`, serta paket `firebase` dan `firebase-admin` dari `package.json`.
+  - Memperketat `crossOriginOpenerPolicy` menjadi `same-origin` di `apps/api/src/app.ts` dan mempertahankan kolom historis `users.uid` (`@deprecated`, nullable) secara non-destruktif di `src/db/schema.ts` untuk menjaga kompatibilitas migrasi dan integritas data akun tersimpan.
+
 ## 2026-11-21 — Perluasan tata letak penuh kiri-kanan untuk mode laptop & desktop (`SINTAKS`)
 
 - **Kontainer & Gutter Adaptif (`apps/web/src/tokens.css`, `apps/web/src/styles.css`):** Mengubah `--container` menjadi `100%` dan `--gutter` menjadi `clamp(20px, 2.2vw, 36px)` (menggantikan batas tetap `1440px` + margin `64px`) agar header `.topbar-inner`, konten `.page-main`, layar masuk `.auth-layout` (editorial kiri & kartu masuk rata kanan), serta `.footer` merentang sejajar penuh dari sisi kiri ke kanan pada layar laptop dan PC tanpa ruang kosong berlebih.

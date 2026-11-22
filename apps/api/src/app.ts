@@ -45,7 +45,7 @@ export function createApp(devFrontend?: DevFrontend) {
     contentSecurityPolicy: false,
     frameguard: false,
     crossOriginEmbedderPolicy: false,
-    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    crossOriginOpenerPolicy: { policy: 'same-origin' },
   }));
   app.use(cors({
     origin: true,

@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { signInWithPopup, signOut } from 'firebase/auth';
-import { auth, googleAuthProvider } from './lib/firebase.ts';
 import {
   API,
   clearAuthMemory,
@@ -8,7 +6,6 @@ import {
   formatFileSize,
   readFileAsAttachment,
   request,
-  setFirebaseToken,
   type Assignment,
   type AttachmentPayload,
   type ClassSummary,
@@ -114,28 +111,10 @@ export default function App() {
     }
   }
 
-  async function signInWithGoogle() {
-    setBusy(true);
-    setMessage('');
-    try {
-      const credential = await signInWithPopup(auth, googleAuthProvider);
-      const token = await credential.user.getIdToken();
-      setFirebaseToken(token);
-      const result = await request('/auth/firebase', {});
-      setUser(result.user);
-    } catch (error) {
-      setFirebaseToken(null);
-      setMessage(error instanceof Error ? error.message : 'Masuk dengan Google gagal.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function logout() {
     try {
       await request('/auth/logout', {});
       clearAuthMemory();
-      await signOut(auth).catch(() => undefined);
       setUser(null);
       setNavTarget(null);
       setInWorkspace(false);
@@ -268,7 +247,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="page-main">
+      <main className={user ? 'page-main' : 'page-main page-main--auth'}>
         {!user ? (
           <section className="auth-layout">
             <div className="welcome">
@@ -346,17 +325,7 @@ export default function App() {
                 </button>
               </form>
               {mode === 'login' && (
-                <>
-                  <button
-                    type="button"
-                    className="button secondary auth-google-btn"
-                    disabled={busy}
-                    onClick={() => void signInWithGoogle()}
-                  >
-                    Masuk dengan Google
-                  </button>
-                  <p className="help-note">Belum memiliki akses? Hubungi Admin SINTAKS.</p>
-                </>
+                <p className="help-note">Belum memiliki akses? Hubungi Admin SINTAKS.</p>
               )}
             </section>
           </section>

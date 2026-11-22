@@ -13,9 +13,7 @@ import {
   type AccountStatus,
   type Role,
 } from '../../../src/db/schema.js';
-import { getOrCreateUser } from '../../../src/db/users.js';
 import { env } from './config/env.js';
-import { adminAuth } from './lib/firebase-admin.js';
 import { formatStudentRosterCsv, parseStudentRosterCsv, RosterCsvError } from './roster.js';
 
 const SESSION_COOKIE = 'lms_session';
@@ -39,7 +37,7 @@ export type AuthUser = {
   mustChangePassword: boolean;
 };
 
-type AuthRequest = Request & { auth?: AuthUser; sessionId?: string; firebaseAuth?: boolean; sessionHeaderAuth?: boolean };
+type AuthRequest = Request & { auth?: AuthUser; sessionId?: string; sessionHeaderAuth?: boolean };
 
 const passwordOptions = { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 const dummyHash = argon2Hash(randomBytes(32).toString('hex'), passwordOptions);
@@ -220,58 +218,6 @@ router.post('/login', loginIpLimiter, loginLimiter, async (req, res, next) => {
   }
 });
 
-router.post('/firebase', loginIpLimiter, async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Token Firebase diperlukan.' } });
-    }
-
-    const idToken = authHeader.slice('Bearer '.length).trim();
-    let decoded;
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken);
-    } catch {
-      return res.status(401).json({ error: { code: 'INVALID_TOKEN', message: 'Token Google tidak valid.' } });
-    }
-
-    if (!decoded.email) {
-      return res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Akun Google tidak memiliki email.' } });
-    }
-
-    const user = await getOrCreateUser(decoded.uid, decoded.email, typeof decoded.name === 'string' ? decoded.name : undefined);
-    if (user.status !== 'ACTIVE') {
-      await audit('AUTH_LOGIN_FAILED', user.id);
-      return res.status(401).json({ error: { code: 'ACCOUNT_INACTIVE', message: 'Akun belum aktif.' } });
-    }
-
-    const token = randomBytes(32).toString('base64url');
-    const csrfToken = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + env.SESSION_TTL_HOURS * 3600_000);
-    await db.insert(sessions).values({
-      userId: user.id,
-      tokenHash: digest(token),
-      csrfHash: digest(csrfToken),
-      expiresAt,
-    });
-    cookies(req, res, token, csrfToken);
-    await audit('AUTH_LOGIN_SUCCEEDED', user.id);
-    return res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.fullName,
-        role: user.role,
-        mustChangePassword: user.mustChangePassword,
-      },
-      sessionToken: token,
-      csrfToken,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const cookieToken = req.cookies?.[SESSION_COOKIE];
@@ -306,32 +252,6 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       return next();
     }
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const idToken = authHeader.slice('Bearer '.length).trim();
-      try {
-        const decoded = await adminAuth.verifyIdToken(idToken);
-        if (!decoded.email) {
-          return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Autentikasi diperlukan.' } });
-        }
-        const user = await getOrCreateUser(decoded.uid, decoded.email, typeof decoded.name === 'string' ? decoded.name : undefined);
-        if (user.status !== 'ACTIVE') {
-          return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Sesi tidak berlaku.' } });
-        }
-        req.auth = {
-          id: user.id,
-          email: user.email,
-          fullName: user.fullName,
-          role: user.role,
-          status: user.status,
-          mustChangePassword: user.mustChangePassword,
-        };
-        req.firebaseAuth = true;
-        return next();
-      } catch {
-        return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Token tidak valid.' } });
-      }
-    }
-
     return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Autentikasi diperlukan.' } });
   } catch (error) {
     next(error);
@@ -339,9 +259,6 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
 }
 
 export async function csrf(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.firebaseAuth && !req.sessionId) {
-    return next();
-  }
   const cookie = req.cookies?.[CSRF_COOKIE];
   const header = req.get('X-CSRF-Token');
   try {
@@ -378,15 +295,11 @@ export function requireRole(...roles: Role[]) {
 
 router.post('/logout', authenticate, csrf, async (req: AuthRequest, res, next) => {
   try {
-    if (!req.auth) return res.status(401).end();
-    if (req.sessionId) {
-      await db.transaction(async (tx) => {
-        await tx.update(sessions).set({ revokedAt: new Date() }).where(eq(sessions.id, req.sessionId!));
-        await tx.insert(auditEvents).values({ action: 'AUTH_LOGOUT', actorId: req.auth!.id });
-      });
-    } else {
-      await audit('AUTH_LOGOUT', req.auth.id);
-    }
+    if (!req.auth || !req.sessionId) return res.status(401).end();
+    await db.transaction(async (tx) => {
+      await tx.update(sessions).set({ revokedAt: new Date() }).where(eq(sessions.id, req.sessionId!));
+      await tx.insert(auditEvents).values({ action: 'AUTH_LOGOUT', actorId: req.auth!.id });
+    });
     res.clearCookie(SESSION_COOKIE, cookieOptions(req));
     res.clearCookie(CSRF_COOKIE, cookieOptions(req));
     res.status(204).end();

@@ -23,9 +23,9 @@ Dokumen ini mencatat keputusan dan pertanyaan yang masih terbuka. Baseline inter
 3. Setiap keputusan harus mencatat pemilik keputusan, tanggal, alasan, dampak pada dokumen, dan versi artefak yang diperbarui.
 4. Setelah disetujui, perbarui SRS/kebutuhan, use case, activity/sequence diagram, ERD, backlog, dan test case yang terdampak.
 
-## Pembaruan arsitektur Sprint 3–4 (2026-11-16)
-- Implementasi aktif menggunakan React + TypeScript + Vite (**SINTAKS**), Express + TypeScript, PostgreSQL (Cloud SQL `asia-southeast1`) + **Drizzle ORM** (`src/db/schema.ts`), dan Firebase Auth (Google Sign-In).
-- Skema penuh Sprint 1–4 mencakup identitas/sesi, kelas/keanggotaan, topik/materi/tugas/pengumpulan, kuis daring, pengumuman, forum, dan notifikasi.
+## Pembaruan arsitektur terkini (2026-11-22)
+- Implementasi aktif menggunakan React + TypeScript + Vite (**SINTAKS**), Express + TypeScript, PostgreSQL (Cloud SQL `asia-southeast1`) + **Drizzle ORM** (`src/db/schema.ts`), serta autentikasi email/kata sandi Argon2id + sesi database (Firebase Auth Google Sign-In telah dihapus permanen per 2026-11-22).
+- Skema penuh Sprint 1–4 mencakup identitas/sesi, kelas/keanggotaan, topik/materi/tugas/pengumpulan, kuis daring, pengumuman, forum, dan notifikasi dalam aplikasi.
 
 ## Sumber keputusan Sprint 1
 
