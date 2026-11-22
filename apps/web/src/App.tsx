@@ -43,18 +43,26 @@ function parseTargetUrl(targetUrl: string): NavigationTarget | null {
 
 function readResetTokenFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
-  const raw = new URLSearchParams(window.location.search).get('resetToken');
-  const trimmed = raw?.trim() ?? '';
+  const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  const hashToken = rawHash ? new URLSearchParams(rawHash).get('resetToken') : null;
+  const searchToken = new URLSearchParams(window.location.search).get('resetToken');
+  const trimmed = (hashToken ?? searchToken)?.trim() ?? '';
   return trimmed.length > 0 ? trimmed : null;
 }
 
 function clearResetTokenFromUrl() {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
-  if (!url.searchParams.has('resetToken')) return;
-  url.searchParams.delete('resetToken');
+  const rawHash = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash;
+  const hashParams = new URLSearchParams(rawHash);
+  const hasHashToken = hashParams.has('resetToken');
+  const hasSearchToken = url.searchParams.has('resetToken');
+  if (!hasHashToken && !hasSearchToken) return;
+  if (hasSearchToken) url.searchParams.delete('resetToken');
+  if (hasHashToken) hashParams.delete('resetToken');
   const search = url.searchParams.toString();
-  const nextUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
+  const hash = hashParams.toString();
+  const nextUrl = `${url.pathname}${search ? `?${search}` : ''}${hash ? `#${hash}` : ''}`;
   window.history.replaceState({}, '', nextUrl);
 }
 
@@ -62,10 +70,10 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [resetToken, setResetToken] = useState<string | null>(() => readResetTokenFromUrl());
   const [resetTokenStatus, setResetTokenStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>(() =>
-    readResetTokenFromUrl() ? 'checking' : 'idle',
+    resetToken ? 'checking' : 'idle',
   );
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(() =>
-    readResetTokenFromUrl() ? 'reset' : 'login',
+    resetToken ? 'reset' : 'login',
   );
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -103,6 +111,21 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    clearResetTokenFromUrl();
+    function handleHashChange() {
+      const nextToken = readResetTokenFromUrl();
+      if (!nextToken) return;
+      clearResetTokenFromUrl();
+      setResetToken(nextToken);
+      setResetTokenStatus('checking');
+      setMode('reset');
+      setMessage('');
+    }
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  useEffect(() => {
     fetch(`${API}/auth/me`, { credentials: 'include' })
       .then(async (r) => (r.ok ? ((await r.json()).user as User) : null))
       .then(setUser)
@@ -110,11 +133,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!resetToken || user) return;
+    if (!resetToken) return;
     let active = true;
     setResetTokenStatus('checking');
-    fetch(`${API}/auth/reset-password/verify?token=${encodeURIComponent(resetToken)}`, {
+    fetch(`${API}/auth/reset-password/verify`, {
+      method: 'POST',
       credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: resetToken }),
     })
       .then((response) => {
         if (!active) return;
@@ -127,7 +153,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [resetToken, user]);
+  }, [resetToken]);
 
   function openLoginMode(nextMessage = '') {
     clearResetTokenFromUrl();
@@ -144,6 +170,8 @@ export default function App() {
     setMode('forgot');
     setMessage('');
   }
+
+  const showAuthView = !user || mode === 'reset' || mode === 'forgot';
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -177,6 +205,11 @@ export default function App() {
           token: resetToken,
           newPassword,
         });
+        clearAuthMemory();
+        setUser(null);
+        setNavTarget(null);
+        setInWorkspace(false);
+        setDosenView('classes');
         formElement.reset();
         openLoginMode(result.message);
       } else {
@@ -315,8 +348,8 @@ export default function App() {
               )}
               <span className="theme-toggle-label">{theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}</span>
             </button>
-            {user && !user.mustChangePassword && <NotificationBell onNavigate={handleNavigate} />}
-            {user && inWorkspace && (
+            {user && !showAuthView && !user.mustChangePassword && <NotificationBell onNavigate={handleNavigate} />}
+            {user && !showAuthView && inWorkspace && (
               <button
                 type="button"
                 className="button secondary topbar-dash-btn"
@@ -330,8 +363,8 @@ export default function App() {
         </div>
       </header>
 
-      <main className={user ? 'page-main' : 'page-main page-main--auth'}>
-        {!user ? (
+      <main className={showAuthView ? 'page-main page-main--auth' : 'page-main'}>
+        {showAuthView ? (
           <section className="auth-layout">
             <div className="welcome">
               <h1>
@@ -348,28 +381,30 @@ export default function App() {
             </div>
 
             <section className="auth-card" aria-labelledby="form-title">
-              <div className="form-tabs">
-                <button
-                  type="button"
-                  className={mode === 'login' ? 'active' : ''}
-                  onClick={() => openLoginMode('')}
-                >
-                  Masuk
-                </button>
-                <button
-                  type="button"
-                  className={mode === 'register' ? 'active' : ''}
-                  onClick={() => {
-                    clearResetTokenFromUrl();
-                    setResetToken(null);
-                    setResetTokenStatus('idle');
-                    setMode('register');
-                    setMessage('');
-                  }}
-                >
-                  Daftar Mahasiswa
-                </button>
-              </div>
+              {!user && (
+                <div className="form-tabs">
+                  <button
+                    type="button"
+                    className={mode === 'login' ? 'active' : ''}
+                    onClick={() => openLoginMode('')}
+                  >
+                    Masuk
+                  </button>
+                  <button
+                    type="button"
+                    className={mode === 'register' ? 'active' : ''}
+                    onClick={() => {
+                      clearResetTokenFromUrl();
+                      setResetToken(null);
+                      setResetTokenStatus('idle');
+                      setMode('register');
+                      setMessage('');
+                    }}
+                  >
+                    Daftar Mahasiswa
+                  </button>
+                </div>
+              )}
               <h2 id="form-title">
                 {mode === 'login'
                   ? 'Masuk ke akun'
@@ -405,7 +440,7 @@ export default function App() {
                       Minta tautan baru
                     </button>
                     <button type="button" className="text-button" onClick={() => openLoginMode('')}>
-                      Kembali ke halaman masuk
+                      {user ? 'Kembali ke dasbor' : 'Kembali ke halaman masuk'}
                     </button>
                   </div>
                 </div>
@@ -490,7 +525,7 @@ export default function App() {
                   {(mode === 'forgot' || mode === 'reset') && (
                     <div className="auth-aux-row">
                       <button type="button" className="text-button" onClick={() => openLoginMode('')}>
-                        Kembali ke halaman masuk
+                        {user ? 'Kembali ke dasbor' : 'Kembali ke halaman masuk'}
                       </button>
                     </div>
                   )}
@@ -501,7 +536,7 @@ export default function App() {
               )}
             </section>
           </section>
-        ) : (
+        ) : !user ? null : (
           <div className="dashboard-stack">
             {!inWorkspace && (
               <ProfileBanner
@@ -2482,6 +2517,8 @@ function ChangePassword({ email, onDone }: { email: string; onDone: (user: User)
   );
 }
 
+const ADMIN_USERS_PAGE_SIZE = 20;
+
 function AccountManagement({
   refreshKey,
   onAccountsChanged,
@@ -2490,26 +2527,74 @@ function AccountManagement({
   onAccountsChanged: () => void;
 }) {
   const [users, setUsers] = useState<Array<User & { status: string }>>([]);
+  const [page, setPage] = useState(1);
+  const [totalFiltered, setTotalFiltered] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalAccounts, setTotalAccounts] = useState(0);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [message, setMessage] = useState('');
   const [section, setSection] = useState<'create' | 'roster' | 'accounts'>('create');
   const [showAllAccounts, setShowAllAccounts] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'DOSEN' | 'MAHASISWA' | 'ADMIN'>('ALL');
   const [busy, setBusy] = useState(false);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const loadSeqRef = useRef(0);
 
-  async function load() {
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setDebouncedSearch('');
+      setPage(1);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(trimmed);
+      setPage(1);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  async function load(targetPage = page) {
+    const seq = ++loadSeqRef.current;
+    setLoadingUsers(true);
     try {
-      const result = await request('/auth/admin/users', undefined, 'GET');
+      const params = new URLSearchParams({
+        page: String(targetPage),
+        limit: String(ADMIN_USERS_PAGE_SIZE),
+        status: showAllAccounts ? 'ALL' : 'ACTIVE',
+        role: roleFilter,
+      });
+      if (debouncedSearch) {
+        params.set('search', debouncedSearch);
+      }
+      const result = (await request(`/auth/admin/users?${params.toString()}`, undefined, 'GET')) as {
+        users: Array<User & { status: string }>;
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+        totalAccounts: number;
+      };
+      if (seq !== loadSeqRef.current) return;
       setUsers(result.users);
+      setTotalFiltered(result.pagination.total);
+      setTotalPages(result.pagination.totalPages);
+      setTotalAccounts(result.totalAccounts);
+      if (targetPage > result.pagination.totalPages) {
+        setPage(result.pagination.totalPages);
+      }
     } catch (error) {
+      if (seq !== loadSeqRef.current) return;
       setMessage(error instanceof Error ? error.message : 'Gagal memuat akun.');
+    } finally {
+      if (seq === loadSeqRef.current) {
+        setLoadingUsers(false);
+      }
     }
   }
 
   useEffect(() => {
-    void load();
-  }, [refreshKey]);
+    void load(page);
+  }, [refreshKey, page, showAllAccounts, roleFilter, debouncedSearch]);
 
   const sections = [
     { id: 'create', label: 'Buat akun Dosen' },
@@ -2517,17 +2602,9 @@ function AccountManagement({
     { id: 'accounts', label: 'Akun aktif' },
   ] as const;
 
-  const statusScopedUsers = showAllAccounts ? users : users.filter((u) => u.status === 'ACTIVE');
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-  const visibleUsers = statusScopedUsers.filter((u) => {
-    if (roleFilter !== 'ALL' && u.role !== roleFilter) return false;
-    if (!normalizedQuery) return true;
-    return (
-      u.fullName.toLowerCase().includes(normalizedQuery) ||
-      u.email.toLowerCase().includes(normalizedQuery)
-    );
-  });
-  const hasActiveFilters = normalizedQuery.length > 0 || roleFilter !== 'ALL';
+  const hasActiveFilters = searchQuery.trim().length > 0 || debouncedSearch.length > 0 || roleFilter !== 'ALL';
+  const startIndex = totalFiltered === 0 ? 0 : (page - 1) * ADMIN_USERS_PAGE_SIZE + 1;
+  const endIndex = totalFiltered === 0 ? 0 : Math.min(totalFiltered, startIndex + users.length - 1);
 
   function moveTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const next =
@@ -2558,7 +2635,8 @@ function AccountManagement({
         `Akun dibuat. Kata sandi awal (tampilkan sekali): ${result.temporaryPassword}. Berikan melalui saluran aman.`,
       );
       onAccountsChanged();
-      await load();
+      setPage(1);
+      await load(1);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Gagal membuat akun.');
     } finally {
@@ -2611,7 +2689,7 @@ function AccountManagement({
           : 'Perubahan akun tersimpan.',
       );
       onAccountsChanged();
-      await load();
+      await load(page);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Gagal memperbarui akun.');
     }
@@ -2626,7 +2704,7 @@ function AccountManagement({
             Buat akun dosen, impor atau cadangkan roster mahasiswa CSV, dan kelola status akses pengguna.
           </p>
         </div>
-        <span className="admin-account-count">{users.length} akun</span>
+        <span className="admin-account-count">{totalAccounts} akun</span>
       </div>
       <div className="admin-tabs" role="tablist" aria-label="Navigasi administrasi akun">
         {sections.map((item, index) => (
@@ -2709,15 +2787,21 @@ function AccountManagement({
               <div>
                 <h4>Akun aktif</h4>
                 <p className="class-filter-meta">
-                  Menampilkan {visibleUsers.length} dari {statusScopedUsers.length}{' '}
-                  {showAllAccounts ? 'akun' : 'akun aktif'}
+                  {totalFiltered === 0
+                    ? `Menampilkan 0 dari 0 ${showAllAccounts ? 'akun' : 'akun aktif'}`
+                    : `Menampilkan ${startIndex}–${endIndex} dari ${totalFiltered} ${
+                        showAllAccounts ? 'akun' : 'akun aktif'
+                      }`}
                 </p>
               </div>
               <label className="filter-option">
                 <input
                   type="checkbox"
                   checked={showAllAccounts}
-                  onChange={(event) => setShowAllAccounts(event.target.checked)}
+                  onChange={(event) => {
+                    setShowAllAccounts(event.target.checked);
+                    setPage(1);
+                  }}
                 />{' '}
                 Tampilkan semua status
               </label>
@@ -2739,9 +2823,10 @@ function AccountManagement({
                 <select
                   className="sintaks-select"
                   value={roleFilter}
-                  onChange={(event) =>
-                    setRoleFilter(event.target.value as 'ALL' | 'DOSEN' | 'MAHASISWA' | 'ADMIN')
-                  }
+                  onChange={(event) => {
+                    setRoleFilter(event.target.value as 'ALL' | 'DOSEN' | 'MAHASISWA' | 'ADMIN');
+                    setPage(1);
+                  }}
                   aria-label="Filter akun berdasarkan peran"
                 >
                   <option value="ALL">Semua peran</option>
@@ -2772,7 +2857,7 @@ function AccountManagement({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleUsers.map((u) => (
+                  {users.map((u) => (
                     <tr key={u.id}>
                       <td className="account-name">{u.fullName}</td>
                       <td className="account-email">{u.email}</td>
@@ -2804,7 +2889,12 @@ function AccountManagement({
                   ))}
                 </tbody>
               </table>
-              {visibleUsers.length === 0 && (
+              {loadingUsers && users.length === 0 && (
+                <div className="class-empty" role="status">
+                  <p>Memuat daftar akun…</p>
+                </div>
+              )}
+              {!loadingUsers && users.length === 0 && (
                 <div className="class-empty">
                   <p>
                     {hasActiveFilters
@@ -2820,7 +2910,9 @@ function AccountManagement({
                         className="button secondary inline-btn"
                         onClick={() => {
                           setSearchQuery('');
+                          setDebouncedSearch('');
                           setRoleFilter('ALL');
+                          setPage(1);
                         }}
                       >
                         Reset pencarian &amp; filter
@@ -2830,6 +2922,32 @@ function AccountManagement({
                 </div>
               )}
             </div>
+            {totalPages > 1 && (
+              <nav className="summary-pagination" aria-label="Navigasi halaman daftar akun">
+                <p className="summary-pagination-status">
+                  Halaman {page} dari {totalPages} ({totalFiltered}{' '}
+                  {showAllAccounts ? 'akun' : 'akun aktif'})
+                </p>
+                <div className="summary-pagination-controls">
+                  <button
+                    type="button"
+                    className="button secondary inline-btn"
+                    disabled={loadingUsers || page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Sebelumnya
+                  </button>
+                  <button
+                    type="button"
+                    className="button secondary inline-btn"
+                    disabled={loadingUsers || page >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Berikutnya
+                  </button>
+                </div>
+              </nav>
+            )}
           </div>
         )}
       </div>

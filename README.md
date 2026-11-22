@@ -17,7 +17,7 @@ Portal pembelajaran kampus (**SINTAKS**, sebelumnya *LMS Kampus PTIK*) yang diba
 ## Quick start
 ```bash
 cp .env.example .env
-npm install
+npm ci
 npm run db:push
 npm run dev
 ```
@@ -46,23 +46,25 @@ npm run db:bootstrap-admin -w @lms/api
 - **API readiness (cek koneksi PostgreSQL):** `GET /ready`
 
 ## Workspace
-- `apps/web` — aplikasi web React + Vite (**SINTAKS**)
+- `apps/web` — aplikasi web React + TypeScript + Vite (**SINTAKS**)
 - `apps/api` — layanan API Express + TypeScript
 - `src/db` — skema Drizzle ORM aktif (`schema.ts`), koneksi database (`index.ts`, `config.ts`), konfigurasi Drizzle (`drizzle.config.ts`), dan definisi retensi objek historis warisan (`legacy-fcm-schema.ts` khusus `db:push`)
+- `drizzle` — berkas migrasi Drizzle SQL (`0000_smiling_doorman.sql`)
 - `packages/shared` — tipe bersama antar workspace
 - `public` — aset statis termasuk logo resmi SINTAKS (`/assets/Logo_Website_SINTAKS_fix_07745e85.png`) dan latar kampus halaman masuk (`/assets/hero-section-background_11499e54.jpg`)
 - `docs` — dokumentasi baseline, skema, roadmap use case, changelog, dan laporan Sprint 0–4
 
 ## Status website saat ini
 
-**Per 2026-11-22:** Seluruh alur MVP **Sprint 1 hingga Sprint 4** serta redesain **SINTAKS** telah diimplementasikan dan aktif di server (dengan autentikasi email & kata sandi Argon2id sebagai metode masuk utama serta notifikasi dalam aplikasi berbasis PostgreSQL; tanpa Google Sign-In/Firebase dan tanpa push browser FCM/VAPID):
-- **Sprint 1 (Identitas & Tata Kelola Akun):** Login/logout email & kata sandi (Argon2id), sesi opaque + cookie `HttpOnly` dengan token CSRF, registrasi mahasiswa berbasis klaim satu kali terhadap roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), pembuatan akun Dosen dengan kata sandi sementara, **Lupa Kata Sandi** (`FR-05`) berbasis token CSPRNG terhash SHA-256 sekali pakai di PostgreSQL & email SMTP (`nodemailer`, tanpa Firebase), perubahan kata sandi wajib/mandiri, serta tata kelola peran/status akun dengan pencarian nama/email, filter peran (`Dosen`/`Mahasiswa`/`Admin`), dan perlindungan Admin aktif terakhir.
+**Per 2026-11-22:** Seluruh alur MVP **Sprint 1 hingga Sprint 4** serta penguatan kesiapan produksi dan keamanan **SINTAKS** telah diimplementasikan (autentikasi email & kata sandi Argon2id sebagai satu-satunya metode masuk serta notifikasi dalam aplikasi berbasis PostgreSQL; tanpa Google Sign-In/Firebase dan tanpa push browser FCM/VAPID):
+- **Sprint 1 (Identitas & Tata Kelola Akun):** Login/logout email & kata sandi (Argon2id), sesi opaque + cookie `HttpOnly` (`COOKIE_SAME_SITE` default `lax`, wajib `COOKIE_SECURE=true` + `https://` saat produksi) dengan token CSRF, registrasi mahasiswa berbasis klaim satu kali terhadap roster CSV yang diimpor Admin (`PENDING` → `ACTIVE`), pembuatan akun Dosen dengan kata sandi sementara, **Lupa Kata Sandi** (`FR-05`) berbasis token CSPRNG terhash SHA-256 sekali pakai di PostgreSQL, tautan URL fragment (`/#resetToken=...`), verifikasi via `POST /auth/reset-password/verify`, rate limiting atomik PostgreSQL (`rate_limit_buckets`: limit per IP + per pengenal akun lintas IP), dan email SMTP (`nodemailer`), perubahan kata sandi wajib/mandiri, serta manajemen akun Admin berpaginasi server (`GET /auth/admin/users` dengan pencarian `ILIKE` aman, filter peran & status, dan perlindungan Admin aktif terakhir).
 - **Sprint 2 (Kelas & Keanggotaan):** Dosen membuat, mengubah, menutup kelas (`OPEN`/`CLOSED`), menerbitkan/merotasi kode undangan 43 karakter sekali tampil, dan melihat daftar anggota; mahasiswa `ACTIVE` bergabung ke kelas `OPEN` menggunakan kode undangan; dilengkapi pencarian (`Cari kelas`) dan pengurutan (`Terbaru dibuat`, `Nama (A–Z)`, `Status`).
 - **Sprint 3 (Topik, Materi, Tugas & Pengumpulan):** Manajemen topik dan materi (`TEXT`, `LINK`, `FILE` maks. 4 MB), publikasi materi draf/terbit, pembuatan tugas dengan tenggat opsional dan kebijakan keterlambatan (`allowLate`), serta pengumpulan/pengiriman ulang tugas oleh mahasiswa di dalam transaksi serializable dengan pelacakan `Versi ke-N` dan status `Tepat waktu` / `Terlambat`.
 - **Sprint 4 (Penilaian, Kuis, Komunikasi, Notifikasi & Dasbor):**
   - Penilaian tugas oleh dosen (`DRAFT` vs `PUBLISHED`) dengan `NUMERIC(5,2)`, publikasi massal nilai draf, rekap nilai kelas (`Rekap Nilai`), serta tampilan nilai terpublikasi mahasiswa (`Nilai & Umpan Balik`).
   - Kuis daring dengan builder soal Pilihan Ganda & Esai, aturan jendela waktu/batas percobaan di server, kunci jawaban tersembunyi dari mahasiswa, autosave jawaban idempoten, hitung mundur waktu-nyata, auto-grading PG, dan penilaian esai manual (`PROVISIONAL` → `FINAL`).
   - Pengumuman kelas oleh dosen, Forum Diskusi dengan jendela sunting 15 menit, notifikasi dalam aplikasi berbasis PostgreSQL (lonceng notifikasi, penghitung belum dibaca, tanda baca, riwayat), dasbor ringkasan per peran (`ADMIN`, `DOSEN`, `MAHASISWA`), serta edit profil dan kata sandi mandiri.
+- **Keamanan & Infrastruktur API:** Allowlist CORS ketat berbasis `WEB_ORIGIN` + `CORS_ALLOWED_ORIGINS` (menolak origin tak dikenal dengan `403 CORS_ORIGIN_DENIED`), validasi `TRUST_PROXY` ketat (default `loopback`, menolak `'true'`), validasi fail-closed `NODE_ENV=production` pada startup, header `Cache-Control: no-store` & `Referrer-Policy: no-referrer`, serta `package-lock.json` sinkron untuk `npm ci`.
 - **UI/UX SINTAKS:** Rebrand penuh ke **SINTAKS**, logo resmi sebagai favicon & ikon navigasi, desain editorial terang (`#FFFFFF` / `#FAFBF9` / `#1F4D3A`), animasi hover/transisi ringan ramah `prefers-reduced-motion`, dan tombol bebas ikon panah.
 
 ## Dokumentasi terkait
@@ -73,7 +75,7 @@ npm run db:bootstrap-admin -w @lms/api
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — catatan riwayat perubahan proyek
 
 ## Catatan & batas operasional tersisa
-- **Layanan email SMTP produksi (`Lupa Kata Sandi`):** Atur variabel `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, serta `WEB_ORIGIN` dan `PASSWORD_RESET_TTL_MINUTES` (default `30` menit) di `.env` agar tautan pengaturan ulang kata sandi terkirim melalui server email Anda (mode `development` tanpa `SMTP_HOST` mencatat pratinjau tautan di konsol server).
-- **Rate limiter in-memory:** Pembatasan percobaan login/registrasi/join kelas masih memakai penyimpanan in-memory satu proses; penyimpanan bersama (mis. Redis) diperlukan sebelum deployment multi-instance.
+- **Layanan email SMTP produksi (`Lupa Kata Sandi`):** Dalam mode `production`, server API gagal start bila `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, atau `SMTP_FROM` tidak valid atau bila `PASSWORD_RESET_DEV_PREVIEW=true`. Dalam mode `development`, pratinjau konsol hanya aktif bila `PASSWORD_RESET_DEV_PREVIEW=true` dan `SMTP_HOST` kosong; jika pengiriman SMTP gagal, token dibatalkan di DB dan API mengembalikan `503 EMAIL_DELIVERY_FAILED`.
+- **Rate limiter:** Alur **Lupa Kata Sandi** (`forgot-password`, `reset-password/verify`, `reset-password`) sudah memakai penyimpanan PostgreSQL atomik lintas proses (`rate_limit_buckets`, limit IP + limit pengenal akun ter-HMAC lintas IP). Endpoint login, registrasi, dan gabung kelas masih memakai pembatas in-memory satu proses dan memerlukan store bersama bila dijalankan multi-instance.
 - **Aksesibilitas pembaca layar:** Navigasi keyboard dan kontras antarmuka telah diperhatikan, namun pengujian audio *screen reader* secara penuh belum dilakukan.
-- **Pengaturan produksi:** Verifikasi origin produksi, TLS/proxy, backup database, dan kebijakan retensi tetap diperlukan sebelum rilis produksi penuh.
+- **Pengaturan produksi:** Verifikasi `WEB_ORIGIN` (`https://`), `TRUST_PROXY`, `COOKIE_SECURE=true`, `RATE_LIMIT_SECRET`, kredensial SMTP, serta migrasi/backup Cloud SQL tetap wajib sebelum rilis produksi penuh.

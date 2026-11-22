@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer';
-import { env } from '../config/env.js';
+import { env, type AppEnv } from '../config/env.js';
 
 export type PasswordResetEmailPayload = {
   to: string;
@@ -10,15 +10,35 @@ export type PasswordResetEmailPayload = {
 
 export type PasswordResetMailHook = (payload: PasswordResetEmailPayload) => Promise<void> | void;
 
+export class MailDeliveryError extends Error {
+  constructor(message = 'Layanan pengiriman email sedang tidak tersedia. Silakan coba lagi nanti.') {
+    super(message);
+    this.name = 'MailDeliveryError';
+  }
+}
+
 let mailHook: PasswordResetMailHook | null = null;
 
 export function setPasswordResetMailHook(hook: PasswordResetMailHook | null) {
   mailHook = hook;
 }
 
-export function buildPasswordResetUrl(rawToken: string) {
-  const baseUrl = env.WEB_ORIGIN.replace(/\/+$/, '');
-  return `${baseUrl}/?resetToken=${encodeURIComponent(rawToken)}`;
+export function buildPasswordResetUrl(rawToken: string, baseOrigin = env.WEB_ORIGIN) {
+  const baseUrl = baseOrigin.replace(/\/+$/, '');
+  return `${baseUrl}/#resetToken=${encodeURIComponent(rawToken)}`;
+}
+
+export function isPasswordResetEmailDeliveryConfigured(
+  cfg: Pick<AppEnv, 'NODE_ENV' | 'SMTP_HOST' | 'SMTP_USER' | 'SMTP_PASS' | 'PASSWORD_RESET_DEV_PREVIEW'> = env,
+): boolean {
+  if (mailHook) return true;
+  if (cfg.NODE_ENV === 'production') {
+    return Boolean(cfg.SMTP_HOST && cfg.SMTP_USER && cfg.SMTP_PASS);
+  }
+  if (cfg.SMTP_HOST) {
+    return Boolean(!cfg.SMTP_USER || cfg.SMTP_PASS);
+  }
+  return cfg.NODE_ENV === 'development' && cfg.PASSWORD_RESET_DEV_PREVIEW;
 }
 
 function escapeHtml(value: string) {
@@ -30,7 +50,38 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#39;');
 }
 
-export async function sendPasswordResetEmail(payload: PasswordResetEmailPayload): Promise<void> {
+function createSmtpTransport(
+  cfg: Pick<AppEnv, 'SMTP_HOST' | 'SMTP_PORT' | 'SMTP_SECURE' | 'SMTP_USER' | 'SMTP_PASS'>,
+) {
+  return nodemailer.createTransport({
+    host: cfg.SMTP_HOST,
+    port: cfg.SMTP_PORT,
+    secure: cfg.SMTP_SECURE,
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
+    ...(cfg.SMTP_USER && cfg.SMTP_PASS
+      ? { auth: { user: cfg.SMTP_USER, pass: cfg.SMTP_PASS } }
+      : {}),
+  });
+}
+
+export async function verifySmtpConnection(
+  cfg: Pick<AppEnv, 'SMTP_HOST' | 'SMTP_PORT' | 'SMTP_SECURE' | 'SMTP_USER' | 'SMTP_PASS'> = env,
+): Promise<boolean> {
+  if (!cfg.SMTP_HOST) return false;
+  const transporter = createSmtpTransport(cfg);
+  await transporter.verify();
+  return true;
+}
+
+export async function sendPasswordResetEmail(
+  payload: PasswordResetEmailPayload,
+  cfg: Pick<
+    AppEnv,
+    'NODE_ENV' | 'SMTP_HOST' | 'SMTP_PORT' | 'SMTP_SECURE' | 'SMTP_USER' | 'SMTP_PASS' | 'SMTP_FROM' | 'PASSWORD_RESET_DEV_PREVIEW'
+  > = env,
+): Promise<void> {
   if (mailHook) {
     await mailHook(payload);
     return;
@@ -65,38 +116,39 @@ export async function sendPasswordResetEmail(payload: PasswordResetEmailPayload)
   </body>
 </html>`.trim();
 
-  if (env.SMTP_HOST) {
-    const transporter = nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      secure: env.SMTP_SECURE,
-      ...(env.SMTP_USER && env.SMTP_PASS
-        ? { auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } }
-        : {}),
-    });
-
-    await transporter.sendMail({
-      from: env.SMTP_FROM,
-      to: payload.to,
-      subject,
-      text,
-      html,
-    });
-    return;
+  if (cfg.SMTP_HOST) {
+    const transporter = createSmtpTransport(cfg);
+    try {
+      await transporter.sendMail({
+        from: cfg.SMTP_FROM,
+        to: payload.to,
+        subject,
+        text,
+        html,
+      });
+      return;
+    } catch (error) {
+      const errCode =
+        error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : 'SMTP_SEND_ERROR';
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'password_reset_smtp_delivery_failed',
+          errorCode: errCode,
+        }),
+      );
+      throw new MailDeliveryError();
+    }
   }
 
-  if (env.NODE_ENV === 'development') {
+  if (cfg.NODE_ENV === 'development' && cfg.PASSWORD_RESET_DEV_PREVIEW) {
     console.info(
-      `[SINTAKS DEV MAIL] To: ${payload.to} | Subject: ${subject} | Reset URL (${payload.expiresInMinutes}m): ${payload.resetUrl}`,
+      `[SINTAKS DEV MAIL PREVIEW] Subject: ${subject} | Reset URL (${payload.expiresInMinutes}m): ${payload.resetUrl}`,
     );
     return;
   }
 
-  console.warn(
-    JSON.stringify({
-      level: 'warn',
-      event: 'password_reset_smtp_unconfigured',
-      message: 'SMTP_HOST belum dikonfigurasi; email reset kata sandi tidak dapat dikirim melalui SMTP.',
-    }),
-  );
+  throw new MailDeliveryError('Layanan pengiriman email belum dikonfigurasi.');
 }

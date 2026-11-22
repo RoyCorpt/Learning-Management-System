@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Algorithm, hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
-import { and, asc, desc, eq, gt, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, ilike, isNull, or, sql } from 'drizzle-orm';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
@@ -14,8 +14,20 @@ import {
   type AccountStatus,
   type Role,
 } from '../../../src/db/schema.js';
-import { env } from './config/env.js';
-import { buildPasswordResetUrl, sendPasswordResetEmail } from './lib/mailer.js';
+import { env, type AppEnv } from './config/env.js';
+import {
+  buildPasswordResetUrl,
+  isPasswordResetEmailDeliveryConfigured,
+  MailDeliveryError,
+  sendPasswordResetEmail,
+} from './lib/mailer.js';
+import {
+  consumeRateLimit,
+  deriveAccountRateLimitKey,
+  deriveIpRateLimitKey,
+  normalizeEmailForRateLimit,
+  type RateLimitResult,
+} from './lib/rate-limit.js';
 import { formatStudentRosterCsv, parseStudentRosterCsv, RosterCsvError } from './roster.js';
 
 const SESSION_COOKIE = 'lms_session';
@@ -44,19 +56,32 @@ type AuthRequest = Request & { auth?: AuthUser; sessionId?: string; sessionHeade
 const passwordOptions = { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 const dummyHash = argon2Hash(randomBytes(32).toString('hex'), passwordOptions);
 
-function cookieOptions(req: Request) {
-  const isHttps = env.COOKIE_SECURE || req.secure || req.get('x-forwarded-proto') === 'https';
+export function buildCookieOptions(
+  isSecureRequest: boolean,
+  runtimeEnv: Pick<AppEnv, 'COOKIE_SECURE' | 'COOKIE_SAME_SITE'> = env,
+) {
+  const secure = runtimeEnv.COOKIE_SECURE || isSecureRequest;
   return {
-    secure: isHttps,
-    sameSite: (isHttps ? 'none' : 'lax') as 'none' | 'lax',
+    secure,
+    sameSite: runtimeEnv.COOKIE_SAME_SITE,
     path: '/',
-  };
+  } as const;
 }
 
-function cookies(req: Request, res: Response, session: string, csrfToken: string) {
-  const common = { ...cookieOptions(req), maxAge: env.SESSION_TTL_HOURS * 3600_000 };
-  res.cookie(SESSION_COOKIE, session, { ...common, httpOnly: true });
-  res.cookie(CSRF_COOKIE, csrfToken, { ...common, httpOnly: false });
+function setPasswordResetSecurityHeaders(res: Response) {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+}
+
+function applyRateLimitHeaders(res: Response, result: RateLimitResult) {
+  res.setHeader('RateLimit-Limit', String(result.limit));
+  res.setHeader('RateLimit-Remaining', String(result.remaining));
+  res.setHeader('RateLimit-Reset', String(result.retryAfterSeconds));
+}
+
+export function escapeLikePattern(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }
 
 async function audit(action: string, actorId?: string, subjectId?: string) {
@@ -68,6 +93,24 @@ async function audit(action: string, actorId?: string, subjectId?: string) {
 }
 
 const credentials = z.object({ email: z.string().email().max(255), password: z.string().min(1).max(200) });
+
+export function createAuthRouter(runtimeEnv: AppEnv = env) {
+function cookieOptions(req: Request) {
+  return buildCookieOptions(req.secure, runtimeEnv);
+}
+
+function cookies(req: Request, res: Response, session: string, csrfToken: string) {
+  const common = { ...cookieOptions(req), maxAge: runtimeEnv.SESSION_TTL_HOURS * 3600_000 };
+  res.cookie(SESSION_COOKIE, session, { ...common, httpOnly: true });
+  res.cookie(CSRF_COOKIE, csrfToken, { ...common, httpOnly: false });
+}
+
+function clearAuthCookies(req: Request, res: Response) {
+  const base = cookieOptions(req);
+  res.clearCookie(SESSION_COOKIE, { ...base, httpOnly: true });
+  res.clearCookie(CSRF_COOKIE, { ...base, httpOnly: false });
+}
+
 const router = Router();
 const loginIpLimiter = rateLimit({
   windowMs: 15 * 60_000,
@@ -91,28 +134,6 @@ const registrationLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: { code: 'REGISTRATION_RATE_LIMITED', message: 'Terlalu banyak permintaan. Coba lagi nanti.' } },
 });
-const forgotPasswordIpLimiter = rateLimit({
-  windowMs: 15 * 60_000,
-  limit: 20,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: { code: 'PASSWORD_RESET_RATE_LIMITED', message: 'Terlalu banyak permintaan atur ulang kata sandi. Coba lagi nanti.' } },
-});
-const forgotPasswordAccountLimiter = rateLimit({
-  windowMs: 15 * 60_000,
-  limit: 5,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  keyGenerator: (req) => `${ipKeyGenerator(req.ip ?? '')}:${digest(String(req.body?.email ?? '').trim().toLowerCase())}`,
-  message: { error: { code: 'PASSWORD_RESET_RATE_LIMITED', message: 'Terlalu banyak permintaan atur ulang kata sandi. Coba lagi nanti.' } },
-});
-const resetPasswordLimiter = rateLimit({
-  windowMs: 15 * 60_000,
-  limit: 15,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: { code: 'PASSWORD_RESET_RATE_LIMITED', message: 'Terlalu banyak percobaan atur ulang kata sandi. Coba lagi nanti.' } },
-});
 
 class RegistrationUnavailableError extends Error {}
 class InvalidResetTokenError extends Error {}
@@ -126,7 +147,7 @@ router.post('/register', registrationLimiter, async (req, res, next) => {
     }).parse(req.body);
     const email = input.email.trim().toLowerCase();
     const domain = email.split('@').at(-1)!;
-    if (!env.STUDENT_EMAIL_DOMAINS.includes(domain)) {
+    if (!runtimeEnv.STUDENT_EMAIL_DOMAINS.includes(domain)) {
       return res.status(400).json({ error: { code: 'REGISTRATION_NOT_ALLOWED', message: 'Data pendaftaran tidak memenuhi syarat.' } });
     }
 
@@ -218,7 +239,7 @@ router.post('/login', loginIpLimiter, loginLimiter, async (req, res, next) => {
 
     const token = randomBytes(32).toString('base64url');
     const csrfToken = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + env.SESSION_TTL_HOURS * 3600_000);
+    const expiresAt = new Date(Date.now() + runtimeEnv.SESSION_TTL_HOURS * 3600_000);
     await db.insert(sessions).values({
       userId: user.id,
       tokenHash: digest(token),
@@ -243,12 +264,61 @@ router.post('/login', loginIpLimiter, loginLimiter, async (req, res, next) => {
   }
 });
 
-router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordAccountLimiter, async (req, res, next) => {
+router.post('/forgot-password', async (req, res, next) => {
+  setPasswordResetSecurityHeaders(res);
   try {
-    const input = z.object({ email: z.string().email().max(255) }).parse(req.body);
-    const email = input.email.trim().toLowerCase();
-    const genericMessage = 'Jika email terdaftar dan aktif, tautan atur ulang kata sandi telah dikirim.';
+    const input = z.object({ email: z.string().trim().email().max(255) }).parse(req.body);
+    const email = normalizeEmailForRateLimit(input.email);
+    const windowMs = runtimeEnv.PASSWORD_RESET_WINDOW_MINUTES * 60_000;
 
+    const ipRate = await consumeRateLimit({
+      bucketKey: deriveIpRateLimitKey('fp', req.ip ?? ''),
+      limit: runtimeEnv.PASSWORD_RESET_IP_LIMIT,
+      windowMs,
+    });
+    const accountRate = await consumeRateLimit({
+      bucketKey: deriveAccountRateLimitKey('fp', email),
+      limit: runtimeEnv.PASSWORD_RESET_ACCOUNT_LIMIT,
+      windowMs,
+    });
+
+    const strictest = !ipRate.allowed && !accountRate.allowed
+      ? (ipRate.retryAfterSeconds >= accountRate.retryAfterSeconds ? ipRate : accountRate)
+      : !ipRate.allowed
+        ? ipRate
+        : !accountRate.allowed
+          ? accountRate
+          : accountRate;
+
+    applyRateLimitHeaders(res, strictest);
+    if (!ipRate.allowed || !accountRate.allowed) {
+      res.setHeader('Retry-After', String(strictest.retryAfterSeconds));
+      return res.status(429).json({
+        error: {
+          code: 'PASSWORD_RESET_RATE_LIMITED',
+          message: 'Terlalu banyak permintaan atur ulang kata sandi. Coba lagi nanti.',
+        },
+      });
+    }
+
+    if (!isPasswordResetEmailDeliveryConfigured(runtimeEnv)) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'password_reset_delivery_unconfigured',
+          requestId: res.locals.requestId,
+        }),
+      );
+      return res.status(503).json({
+        error: {
+          code: 'EMAIL_DELIVERY_FAILED',
+          message: 'Layanan pengiriman email sedang tidak tersedia. Silakan coba lagi nanti.',
+          requestId: res.locals.requestId,
+        },
+      });
+    }
+
+    const genericMessage = 'Jika email terdaftar dan aktif, tautan atur ulang kata sandi telah dikirim.';
     const foundUsers = await db.select().from(users).where(eq(users.email, email)).limit(1);
     const user = foundUsers[0];
     if (!user || user.status !== 'ACTIVE') {
@@ -257,7 +327,7 @@ router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordAccountLi
 
     const rawToken = randomBytes(32).toString('base64url');
     const tokenHash = digest(rawToken);
-    const expiresAt = new Date(Date.now() + env.PASSWORD_RESET_TTL_MINUTES * 60_000);
+    const expiresAt = new Date(Date.now() + runtimeEnv.PASSWORD_RESET_TTL_MINUTES * 60_000);
 
     const createdToken = await db.transaction(async (tx) => {
       await tx
@@ -284,19 +354,37 @@ router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordAccountLi
     });
 
     try {
-      await sendPasswordResetEmail({
-        to: user.email,
-        fullName: user.fullName,
-        resetUrl: buildPasswordResetUrl(rawToken),
-        expiresInMinutes: env.PASSWORD_RESET_TTL_MINUTES,
-      });
+      await sendPasswordResetEmail(
+        {
+          to: user.email,
+          fullName: user.fullName,
+          resetUrl: buildPasswordResetUrl(rawToken, runtimeEnv.WEB_ORIGIN),
+          expiresInMinutes: runtimeEnv.PASSWORD_RESET_TTL_MINUTES,
+        },
+        runtimeEnv,
+      );
     } catch (mailError) {
       await db
         .update(passwordResetTokens)
         .set({ usedAt: new Date() })
         .where(eq(passwordResetTokens.id, createdToken.id))
         .catch(() => undefined);
-      throw mailError;
+
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'password_reset_email_failed',
+          requestId: res.locals.requestId,
+          errorType: mailError instanceof MailDeliveryError ? 'MAIL_DELIVERY_ERROR' : 'UNEXPECTED_MAIL_ERROR',
+        }),
+      );
+      return res.status(503).json({
+        error: {
+          code: 'EMAIL_DELIVERY_FAILED',
+          message: 'Layanan pengiriman email sedang tidak tersedia. Silakan coba lagi nanti.',
+          requestId: res.locals.requestId,
+        },
+      });
     }
 
     return res.status(200).json({ message: genericMessage });
@@ -305,10 +393,27 @@ router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordAccountLi
   }
 });
 
-router.get('/reset-password/verify', async (req, res, next) => {
+router.post('/reset-password/verify', async (req, res, next) => {
+  setPasswordResetSecurityHeaders(res);
   try {
-    const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
-    if (token.length < 16 || token.length > 300) {
+    const verifyRate = await consumeRateLimit({
+      bucketKey: deriveIpRateLimitKey('rp_verify', req.ip ?? ''),
+      limit: Math.max(runtimeEnv.PASSWORD_RESET_IP_LIMIT, 30),
+      windowMs: runtimeEnv.PASSWORD_RESET_WINDOW_MINUTES * 60_000,
+    });
+    applyRateLimitHeaders(res, verifyRate);
+    if (!verifyRate.allowed) {
+      res.setHeader('Retry-After', String(verifyRate.retryAfterSeconds));
+      return res.status(429).json({
+        error: {
+          code: 'PASSWORD_RESET_RATE_LIMITED',
+          message: 'Terlalu banyak percobaan verifikasi tautan atur ulang kata sandi. Coba lagi nanti.',
+        },
+      });
+    }
+
+    const parsed = z.object({ token: z.string().trim().min(16).max(300) }).safeParse(req.body);
+    if (!parsed.success) {
       return res.status(400).json({
         error: { code: 'INVALID_RESET_TOKEN', message: 'Tautan atur ulang kata sandi tidak valid atau sudah kedaluwarsa.' },
       });
@@ -320,7 +425,7 @@ router.get('/reset-password/verify', async (req, res, next) => {
       .innerJoin(users, eq(passwordResetTokens.userId, users.id))
       .where(
         and(
-          eq(passwordResetTokens.tokenHash, digest(token)),
+          eq(passwordResetTokens.tokenHash, digest(parsed.data.token)),
           isNull(passwordResetTokens.usedAt),
           gt(passwordResetTokens.expiresAt, new Date()),
           eq(users.status, 'ACTIVE'),
@@ -340,8 +445,25 @@ router.get('/reset-password/verify', async (req, res, next) => {
   }
 });
 
-router.post('/reset-password', resetPasswordLimiter, async (req, res, next) => {
+router.post('/reset-password', async (req, res, next) => {
+  setPasswordResetSecurityHeaders(res);
   try {
+    const resetRate = await consumeRateLimit({
+      bucketKey: deriveIpRateLimitKey('rp', req.ip ?? ''),
+      limit: runtimeEnv.PASSWORD_RESET_IP_LIMIT,
+      windowMs: runtimeEnv.PASSWORD_RESET_WINDOW_MINUTES * 60_000,
+    });
+    applyRateLimitHeaders(res, resetRate);
+    if (!resetRate.allowed) {
+      res.setHeader('Retry-After', String(resetRate.retryAfterSeconds));
+      return res.status(429).json({
+        error: {
+          code: 'PASSWORD_RESET_RATE_LIMITED',
+          message: 'Terlalu banyak percobaan atur ulang kata sandi. Coba lagi nanti.',
+        },
+      });
+    }
+
     const input = z.object({
       token: z.string().trim().min(16).max(300),
       newPassword: z.string().min(12).max(200),
@@ -409,8 +531,7 @@ router.post('/reset-password', resetPasswordLimiter, async (req, res, next) => {
       throw error;
     }
 
-    res.clearCookie(SESSION_COOKIE, cookieOptions(req));
-    res.clearCookie(CSRF_COOKIE, cookieOptions(req));
+    clearAuthCookies(req, res);
     return res.status(200).json({
       message: 'Kata sandi berhasil diatur ulang. Silakan masuk dengan kata sandi baru Anda.',
     });
@@ -418,6 +539,10 @@ router.post('/reset-password', resetPasswordLimiter, async (req, res, next) => {
     next(error);
   }
 });
+
+  registerAuthenticatedAuthRoutes(router, runtimeEnv);
+  return router;
+}
 
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -494,15 +619,20 @@ export function requireRole(...roles: Role[]) {
   };
 }
 
-router.post('/logout', authenticate, csrf, async (req: AuthRequest, res, next) => {
+export function registerAuthenticatedAuthRoutes(router: Router, runtimeEnv: AppEnv = env) {
+  function clearAuthCookies(req: Request, res: Response) {
+    const base = buildCookieOptions(req.secure, runtimeEnv);
+    res.clearCookie(SESSION_COOKIE, { ...base, httpOnly: true });
+    res.clearCookie(CSRF_COOKIE, { ...base, httpOnly: false });
+  }
+  router.post('/logout', authenticate, csrf, async (req: AuthRequest, res, next) => {
   try {
     if (!req.auth || !req.sessionId) return res.status(401).end();
     await db.transaction(async (tx) => {
       await tx.update(sessions).set({ revokedAt: new Date() }).where(eq(sessions.id, req.sessionId!));
       await tx.insert(auditEvents).values({ action: 'AUTH_LOGOUT', actorId: req.auth!.id });
     });
-    res.clearCookie(SESSION_COOKIE, cookieOptions(req));
-    res.clearCookie(CSRF_COOKIE, cookieOptions(req));
+    clearAuthCookies(req, res);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -545,8 +675,7 @@ router.post('/change-password', authenticate, csrf, async (req: AuthRequest, res
     if (!changed) {
       return res.status(409).json({ error: { code: 'PASSWORD_CHANGE_CONFLICT', message: 'Kata sandi atau sesi berubah. Silakan masuk kembali.' } });
     }
-    res.clearCookie(SESSION_COOKIE, cookieOptions(req));
-    res.clearCookie(CSRF_COOKIE, cookieOptions(req));
+    clearAuthCookies(req, res);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -555,21 +684,69 @@ router.post('/change-password', authenticate, csrf, async (req: AuthRequest, res
 
 router.use('/admin', authenticate, requireRole('ADMIN'));
 
-router.get('/admin/users', async (_req, res, next) => {
+router.get('/admin/users', async (req, res, next) => {
   try {
-    const rows = await db
-      .select({
-        id: users.id,
-        email: users.email,
-        fullName: users.fullName,
-        role: users.role,
-        status: users.status,
-        createdAt: users.createdAt,
-      })
-      .from(users)
-      .orderBy(desc(users.createdAt))
-      .limit(1000);
-    res.json({ users: rows });
+    const query = z.object({
+      page: z.coerce.number().int().min(1).max(10_000).default(1),
+      limit: z.coerce.number().int().min(1).max(100).default(25),
+      search: z.string().trim().max(150).optional().default(''),
+      role: z.enum(['ALL', ...ROLES]).default('ALL'),
+      status: z.enum(['ALL', ...ACCOUNT_STATUSES]).default('ALL'),
+    }).parse(req.query);
+
+    const conditions = [];
+    if (query.role !== 'ALL') {
+      conditions.push(eq(users.role, query.role));
+    }
+    if (query.status !== 'ALL') {
+      conditions.push(eq(users.status, query.status));
+    }
+    if (query.search.length > 0) {
+      const pattern = `%${escapeLikePattern(query.search)}%`;
+      conditions.push(or(ilike(users.fullName, pattern), ilike(users.email, pattern))!);
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const offset = (query.page - 1) * query.limit;
+
+    const [rows, filteredCountRows, totalAccountsRows] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          email: users.email,
+          fullName: users.fullName,
+          role: users.role,
+          status: users.status,
+          createdAt: users.createdAt,
+        })
+        .from(users)
+        .where(whereClause)
+        .orderBy(desc(users.createdAt), asc(users.id))
+        .limit(query.limit)
+        .offset(offset),
+      db
+        .select({ total: count() })
+        .from(users)
+        .where(whereClause),
+      db
+        .select({ total: count() })
+        .from(users),
+    ]);
+
+    const total = Number(filteredCountRows[0]?.total ?? 0);
+    const totalAccounts = Number(totalAccountsRows[0]?.total ?? 0);
+    const totalPages = Math.max(1, Math.ceil(total / query.limit));
+
+    res.json({
+      users: rows,
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages,
+      },
+      totalAccounts,
+    });
   } catch (error) {
     next(error);
   }
@@ -579,7 +756,7 @@ router.post('/admin/roster/import', csrf, async (req: AuthRequest, res, next) =>
   try {
     if (!req.auth) return res.status(401).end();
     const { csv } = z.object({ csv: z.string().min(1).max(1_000_000) }).parse(req.body);
-    const entries = parseStudentRosterCsv(csv, env.STUDENT_EMAIL_DOMAINS);
+    const entries = parseStudentRosterCsv(csv, runtimeEnv.STUDENT_EMAIL_DOMAINS);
     const summary = await db.transaction(async (tx) => {
       let created = 0;
       let updated = 0;
@@ -818,5 +995,6 @@ router.patch('/admin/users/:id/role', csrf, async (req: AuthRequest, res, next) 
     next(error);
   }
 });
+}
 
-export { router as authRouter };
+export const authRouter = createAuthRouter();

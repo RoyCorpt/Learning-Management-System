@@ -1,8 +1,8 @@
 # Database Schema SINTAKS (Sprint 1–4)
 
-**Versi:** 2.2 · **Tanggal:** 2026-11-22 · **Status:** Aktif di Cloud SQL PostgreSQL (`asia-southeast1`)
+**Versi:** 2.3 · **Tanggal:** 2026-11-22 · **Status:** Skema Drizzle ORM & migrasi baseline `./drizzle/0000_smiling_doorman.sql`
 
-Skema aktif PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.ts` (koneksi `src/db/index.ts`, konfigurasi `src/db/drizzle.config.ts`) dengan konvensi penamaan tabel dan kolom `snake_case`.
+Skema aktif PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.ts` (koneksi `src/db/index.ts`, konfigurasi `src/db/drizzle.config.ts`, migrasi SQL `drizzle/`) dengan konvensi penamaan tabel dan kolom `snake_case`.
 
 ## Daftar Enum PostgreSQL
 
@@ -19,7 +19,7 @@ Skema aktif PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.
 
 ## Tabel Berdasarkan Domain
 
-### 1. Identitas, Sesi & Audit (Sprint 1)
+### 1. Identitas, Sesi, Rate Limit & Audit (Sprint 1)
 
 | Tabel | Tujuan dan pengamanan utama |
 |---|---|
@@ -27,6 +27,7 @@ Skema aktif PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.
 | `student_roster` | `nim` dan `email` unik, `full_name`, `registration_eligible`, `registered_at`, dan `registered_user_id` untuk klaim pendaftaran mahasiswa satu kali. |
 | `sessions` | FK `user_id` (cascade delete), `token_hash` dan `csrf_hash` SHA-256, `expires_at`, `revoked_at`. Token mentah tidak disimpan di database. |
 | `password_reset_tokens` | FK `user_id` (cascade delete), `token_hash` SHA-256 unik (token mentah tidak pernah disimpan), `expires_at`, `used_at` sekali pakai, dan indeks `(user_id, used_at, expires_at)` untuk fitur **Lupa Kata Sandi** tanpa Firebase. |
+| `rate_limit_buckets` | Penyimpanan counter rate-limiting jendela tetap atomik berbasis PostgreSQL (`bucket_key` PK terhash HMAC-SHA256, `hits`, `reset_at`, `updated_at`, dan indeks `rate_limit_buckets_reset_at_idx`) untuk pembatasan permintaan lintas proses (`forgot-password`, `reset-password/verify`, `reset-password`). |
 | `audit_events` | `actor_id`, `action`, `subject_id`, `details` (JSONB), `created_at` untuk jejak autentikasi, tata kelola akun, kelas, serta koreksi nilai. |
 
 ### 2. Kelas & Keanggotaan (Sprint 2)

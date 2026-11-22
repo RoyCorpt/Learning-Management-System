@@ -140,6 +140,17 @@ export const passwordResetTokens = pgTable(
   ],
 );
 
+export const rateLimitBuckets = pgTable(
+  'rate_limit_buckets',
+  {
+    bucketKey: varchar('bucket_key', { length: 128 }).primaryKey(),
+    hits: integer('hits').default(1).notNull(),
+    resetAt: timestamp('reset_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('rate_limit_buckets_reset_at_idx').on(table.resetAt)],
+);
+
 export const auditEvents = pgTable(
   'audit_events',
   {
