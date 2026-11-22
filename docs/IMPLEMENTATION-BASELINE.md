@@ -11,7 +11,7 @@ Seluruh ruang lingkup MVP **Sprint 1 hingga Sprint 4** serta pembaruan antarmuka
 - `apps/api`: Backend Node.js + Express + TypeScript (menyajikan rute `/auth/*`, `/api/*`, `public/`, dan bundel `apps/web/dist` pada port `3000`).
 - `src/db`: Skema PostgreSQL **Drizzle ORM** (`schema.ts`, `index.ts`, `drizzle.config.ts`) dengan migrasi/sinkronisasi menuju Cloud SQL (`asia-southeast1`).
 - `packages/shared`: Tipe peran dan API bersama.
-- `public`: Aset statis termasuk logo SINTAKS (`/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png`) dan latar kampus halaman masuk (`/assets/aistudio/hero-section-background_11499e54.jpg`).
+- `public`: Aset statis termasuk logo SINTAKS (`/assets/Logo_Website_SINTAKS_fix_07745e85.png`) dan latar kampus halaman masuk (`/assets/hero-section-background_11499e54.jpg`).
 
 ## Working assumptions & implemented baselines
 - **Peran:** `ADMIN`, `DOSEN`, `MAHASISWA` dengan otorisasi *deny-by-default* berbasis sesi server-side dan kepemilikan/keanggotaan kelas.

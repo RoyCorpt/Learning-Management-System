@@ -177,7 +177,7 @@ export default function App() {
                 <span aria-hidden="true">S</span>
               ) : (
                 <img
-                  src="/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png"
+                  src="/assets/Logo_Website_SINTAKS_fix_07745e85.png"
                   alt="Logo SINTAKS"
                   className="brand-logo-img"
                   referrerPolicy="no-referrer"

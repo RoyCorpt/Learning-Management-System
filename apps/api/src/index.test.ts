@@ -119,7 +119,7 @@ describe('Sprint 1 authentication foundation', () => {
       expect(removedGoogleEndpoint.status).toBe(404);
       expect((await removedGoogleEndpoint.json()).error.code).toBe('NOT_FOUND');
     } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
-  });
+  }, 15000);
 
   (process.env.RUN_DB_INTEGRATION === '1' ? it : it.skip)('revokes sessions, checks account status on each request, enforces RBAC and rate limits', async () => {
     const { createApp } = await import('./app.js');

@@ -50,7 +50,7 @@ npm run db:bootstrap-admin -w @lms/api
 - `apps/api` — layanan API Express + TypeScript
 - `src/db` — skema Drizzle ORM aktif (`schema.ts`), koneksi database (`index.ts`, `config.ts`), konfigurasi Drizzle (`drizzle.config.ts`), dan definisi retensi objek historis warisan (`legacy-fcm-schema.ts` khusus `db:push`)
 - `packages/shared` — tipe bersama antar workspace
-- `public` — aset statis termasuk logo resmi SINTAKS (`/assets/aistudio/Logo_Website_SINTAKS_fix_07745e85.png`) dan latar kampus halaman masuk (`/assets/aistudio/hero-section-background_11499e54.jpg`)
+- `public` — aset statis termasuk logo resmi SINTAKS (`/assets/Logo_Website_SINTAKS_fix_07745e85.png`) dan latar kampus halaman masuk (`/assets/hero-section-background_11499e54.jpg`)
 - `docs` — dokumentasi baseline, skema, roadmap use case, changelog, dan laporan Sprint 0–4
 
 ## Status website saat ini
