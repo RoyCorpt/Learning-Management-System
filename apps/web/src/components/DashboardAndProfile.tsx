@@ -6,6 +6,7 @@ import {
   type Role,
   type User,
 } from '../lib/api.ts';
+import { MathText } from './MathText.tsx';
 
 function firstWord(fullName: string) {
   const trimmed = fullName.trim();
@@ -145,10 +146,14 @@ export function NotificationBell({
                     onClick={() => void clickNotification(n)}
                   >
                     <div className="notification-item-top">
-                      <strong>{n.title}</strong>
+                      <strong>
+                        <MathText text={n.title} />
+                      </strong>
                       {!n.isRead && <span className="notification-dot" aria-label="Belum dibaca" />}
                     </div>
-                    <p>{n.message}</p>
+                    <p>
+                      <MathText text={n.message} />
+                    </p>
                     <time dateTime={n.createdAt}>{new Date(n.createdAt).toLocaleString('id-ID')}</time>
                   </button>
                 </li>
@@ -366,7 +371,9 @@ export function RoleSummaryDashboard({
                           </span>
                           <span className="workspace-meta-time">{item.className}</span>
                         </div>
-                        <strong>{item.title}</strong>
+                        <strong>
+                          <MathText text={item.title} />
+                        </strong>
                         <span className="workspace-meta-time">
                           {item.deadlineAt
                             ? `Tenggat: ${new Date(item.deadlineAt).toLocaleString('id-ID')}`
@@ -398,11 +405,17 @@ export function RoleSummaryDashboard({
                   {summary.recentGrades.map((g) => (
                     <div key={`${g.kind}-${g.id}`} className="grade-row-item">
                       <div className="grade-row-main">
-                        <strong className="grade-row-title">{g.title}</strong>
+                        <strong className="grade-row-title">
+                          <MathText text={g.title} />
+                        </strong>
                         <span className="workspace-meta-time">
                           {g.className}, {g.statusLabel}
                         </span>
-                        {g.feedback && <p className="workspace-muted">{g.feedback}</p>}
+                        {g.feedback && (
+                          <p className="workspace-muted">
+                            <MathText text={g.feedback} />
+                          </p>
+                        )}
                       </div>
                       <div className="grade-row-right">
                         <span className="grade-row-score">{g.score} / 100</span>
@@ -431,8 +444,14 @@ export function RoleSummaryDashboard({
                   <article className="announcement-feed-row" key={ann.id}>
                     <span className="announcement-feed-course">{ann.className}</span>
                     <div className="announcement-feed-body">
-                      <strong>{ann.title}</strong>
-                      <p>{ann.body.length > 180 ? `${ann.body.slice(0, 180)}…` : ann.body}</p>
+                      <strong>
+                        <MathText text={ann.title} />
+                      </strong>
+                      <p>
+                        <MathText
+                          text={ann.body.length > 180 ? `${ann.body.slice(0, 180)}…` : ann.body}
+                        />
+                      </p>
                       <span className="workspace-meta-time">
                         {ann.authorName},{' '}
                         <time dateTime={ann.createdAt}>
@@ -531,7 +550,9 @@ export function RoleSummaryDashboard({
                   {pagedDosenSummaries.map((c) => (
                     <article key={c.classId} className="summary-box">
                       <div className="class-card-heading">
-                        <h4>{c.className}</h4>
+                        <h4>
+                          <MathText text={c.className} />
+                        </h4>
                         <span className={`class-status ${c.status.toLowerCase()}`}>
                           {c.status === 'OPEN' ? 'Terbuka' : 'Ditutup'}
                         </span>

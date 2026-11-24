@@ -1,6 +1,6 @@
 # Database Schema SINTAKS (Sprint 1–4)
 
-**Versi:** 2.3 · **Tanggal:** 2026-11-22 · **Status:** Skema Drizzle ORM & migrasi baseline `./drizzle/0000_smiling_doorman.sql`
+**Versi:** 2.4 · **Tanggal:** 2026-11-23 · **Status:** Skema Drizzle ORM & migrasi `./drizzle/0000_smiling_doorman.sql`, `./drizzle/0001_regular_gauntlet.sql`
 
 Skema aktif PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.ts` (koneksi `src/db/index.ts`, konfigurasi `src/db/drizzle.config.ts`, migrasi SQL `drizzle/`) dengan konvensi penamaan tabel dan kolom `snake_case`.
 
@@ -42,16 +42,16 @@ Skema aktif PostgreSQL dikelola menggunakan **Drizzle ORM** pada `src/db/schema.
 | Tabel | Tujuan dan pengamanan utama |
 |---|---|
 | `topics` | Pengelompokan materi per `class_id` dengan `title` dan `sort_order`. |
-| `materials` | Materi kelas (`TEXT`, `LINK`, `FILE`), relasi opsional ke `topic_id`, metadata/data lampiran privat (batas 4 MB), dan flag `is_published`. |
-| `assignments` | Daftar tugas per `class_id` dengan `instructions`, `due_at` opsional, `status` (`OPEN`/`CLOSED`), dan `allow_late`. |
+| `materials` | Materi kelas (`TEXT`, `LINK`, `FILE`), relasi opsional ke `topic_id`, metadata/data lampiran privat (batas 4 MB, mendukung PDF, TXT, MD, CSV, PNG, JPG, WEBP, DOCX, ZIP), dan flag `is_published`. |
+| `assignments` | Daftar tugas per `class_id` dengan `instructions`, `external_url` opsional, metadata/data lampiran privat opsional (`attachment_name`, `attachment_mime`, `attachment_size`, `attachment_data`), `due_at` opsional, `status` (`OPEN`/`CLOSED`), dan `allow_late`. |
 | `submissions` | Unik per `(assignment_id, student_id)`; menyimpan jawaban teks, lampiran privat (maks. 4 MB), `version` (`Versi ke-N`), `is_late`, serta kolom penilaian Sprint 4 (`score` `NUMERIC(5,2)`, `feedback`, `grade_status`, `graded_by`, `graded_at`). |
 
 ### 4. Kuis Daring & Evaluasi (Sprint 4)
 
 | Tabel | Tujuan dan pengamanan utama |
 |---|---|
-| `quizzes` | Konfigurasi kuis per `class_id` (`title`, `description`, `time_limit_minutes`, `max_attempts`, `opens_at`, `closes_at`, `status`). |
-| `questions` | Soal per `quiz_id` bertipe `MULTIPLE_CHOICE` atau `ESSAY`, `prompt`, `points` (`NUMERIC(5,2)`), dan `position`. |
+| `quizzes` | Konfigurasi kuis per `class_id` (`title`, `description`, `external_url` opsional, metadata/data lampiran privat opsional, `time_limit_minutes`, `max_attempts`, `opens_at`, `closes_at`, `status`). |
+| `questions` | Soal per `quiz_id` bertipe `MULTIPLE_CHOICE` atau `ESSAY`, `prompt`, `external_url` opsional, metadata/data lampiran privat opsional, `points` (`NUMERIC(5,2)`), dan `position`. |
 | `question_options` | Opsi jawaban pilihan ganda (`label`, `is_correct`, `position`). Field `is_correct` tidak pernah dikirim dalam payload peserta mahasiswa. |
 | `quiz_attempts` | Percobaan per `(quiz_id, student_id, attempt_number)` dengan `started_at`, `submitted_at`, `auto_score`, `manual_score`, `final_score` (`NUMERIC(5,2)`), dan `status` (`IN_PROGRESS`/`PROVISIONAL`/`FINAL`). |
 | `attempt_answers` | Jawaban per `(attempt_id, question_id)` (`selected_option_id`, `text_answer`, `points_awarded`, `feedback`, `updated_at`) untuk autosave dan penilaian esai. |

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
+  ATTACHMENT_ACCEPT,
+  readFileAsAttachment,
   request,
+  type AttachmentPayload,
   type AttemptAnswer,
   type ClassSummary,
   type Quiz,
@@ -8,7 +11,10 @@ import {
   type QuizQuestion,
   type Role,
 } from '../lib/api.ts';
+import { containsLatexMath } from '../lib/math.ts';
+import { AttachmentViewer } from './AttachmentViewer.tsx';
 import { ExpandableAnswerText } from './ExpandableAnswerText.tsx';
+import { MathPreviewBox, MathText } from './MathText.tsx';
 
 type QuizzesSectionProps = {
   classItem: ClassSummary;
@@ -40,9 +46,11 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
   const [busy, setBusy] = useState(false);
 
   // DOSEN states
+  const [quizDescription, setQuizDescription] = useState('');
   const [managingQuizId, setManagingQuizId] = useState<string | null>(null);
   const [managedQuestions, setManagedQuestions] = useState<QuizQuestion[]>([]);
   const [questionType, setQuestionType] = useState<'MULTIPLE_CHOICE' | 'ESSAY'>('MULTIPLE_CHOICE');
+  const [questionPrompt, setQuestionPrompt] = useState('');
   const [mcqOptions, setMcqOptions] = useState<string[]>(['', '', '', '']);
   const [correctIndex, setCorrectIndex] = useState<number>(0);
 
@@ -149,11 +157,17 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
     const form = new FormData(formEl);
     const opensRaw = String(form.get('opensAt') ?? '').trim();
     const closesRaw = String(form.get('closesAt') ?? '').trim();
+    const externalUrl = String(form.get('externalUrl') ?? '').trim() || null;
+    const file = form.get('attachment');
 
     try {
+      const attachment: AttachmentPayload | null =
+        file instanceof File && file.size > 0 ? await readFileAsAttachment(file) : null;
       const res = (await request(`/api/classes/${classItem.id}/quizzes`, {
         title: String(form.get('title') ?? '').trim(),
-        description: String(form.get('description') ?? '').trim() || null,
+        description: quizDescription.trim() || null,
+        externalUrl,
+        attachment,
         timeLimitMinutes: Number(form.get('timeLimitMinutes') ?? 30),
         maxAttempts: Number(form.get('maxAttempts') ?? 1),
         opensAt: opensRaw ? new Date(opensRaw).toISOString() : null,
@@ -161,6 +175,7 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
         status: 'DRAFT',
       })) as { quiz: Quiz };
       formEl.reset();
+      setQuizDescription('');
       onStatusMessage('Draf kuis berhasil dibuat. Tambahkan pertanyaan sebelum mempublikasikan.');
       await loadQuizzes();
       await openManageQuestions(res.quiz.id);
@@ -196,10 +211,14 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
     onStatusMessage('');
     const formEl = event.currentTarget;
     const form = new FormData(formEl);
-    const prompt = String(form.get('prompt') ?? '').trim();
+    const prompt = questionPrompt.trim();
     const points = Number(form.get('points') ?? 10);
+    const externalUrl = String(form.get('externalUrl') ?? '').trim() || null;
+    const file = form.get('attachment');
 
     try {
+      const attachment: AttachmentPayload | null =
+        file instanceof File && file.size > 0 ? await readFileAsAttachment(file) : null;
       const options =
         questionType === 'MULTIPLE_CHOICE'
           ? mcqOptions
@@ -219,10 +238,13 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
       await request(`/api/classes/${classItem.id}/quizzes/${quizId}/questions`, {
         type: questionType,
         prompt,
+        externalUrl,
+        attachment,
         points,
         ...(options ? { options } : {}),
       });
       formEl.reset();
+      setQuestionPrompt('');
       setMcqOptions(['', '', '', '']);
       setCorrectIndex(0);
       const res = (await request(`/api/classes/${classItem.id}/quizzes/${quizId}`, undefined, 'GET')) as {
@@ -466,7 +488,9 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
       <div className="quiz-runner">
         <div className="quiz-runner-topbar">
           <div className="quiz-runner-identity">
-            <strong>{activeSession.quiz.title}</strong>
+            <strong>
+              <MathText text={activeSession.quiz.title} />
+            </strong>
             <span>
               {classItem.name}, Percobaan ke-{activeSession.attempt.attemptNumber}
             </span>
@@ -481,7 +505,12 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
         </div>
 
         <div className="quiz-intro-header">
-          <h4>{activeSession.quiz.title}</h4>
+          <h4>
+            <MathText text={activeSession.quiz.title} />
+          </h4>
+          {activeSession.quiz.description && (
+            <MathText text={activeSession.quiz.description} as="p" className="workspace-body-text" />
+          )}
           <p className="workspace-muted">
             <span className="num">{activeSession.questions.length} soal</span>,{' '}
             <span className="num">{totalPoints} poin</span>
@@ -489,6 +518,19 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
               ? `, batas waktu ${new Date(activeSession.quiz.closesAt).toLocaleString('id-ID')}`
               : ''}
           </p>
+          <AttachmentViewer
+            externalUrl={activeSession.quiz.externalUrl}
+            attachmentName={activeSession.quiz.attachmentName}
+            attachmentMime={activeSession.quiz.attachmentMime}
+            attachmentSize={activeSession.quiz.attachmentSize}
+            downloadPath={
+              activeSession.quiz.attachmentName
+                ? `/api/classes/${classItem.id}/quizzes/${activeSession.quiz.id}/download`
+                : null
+            }
+            linkLabel="Buka tautan referensi kuis"
+            compact
+          />
         </div>
 
         <div className="quiz-runner-grid">
@@ -506,7 +548,20 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                 </div>
               </div>
 
-              <p className="quiz-prompt">{currentQ.prompt}</p>
+              <MathText text={currentQ.prompt} as="p" className="quiz-prompt" />
+
+              <AttachmentViewer
+                externalUrl={currentQ.externalUrl}
+                attachmentName={currentQ.attachmentName}
+                attachmentMime={currentQ.attachmentMime}
+                attachmentSize={currentQ.attachmentSize}
+                downloadPath={
+                  currentQ.attachmentName
+                    ? `/api/classes/${classItem.id}/quizzes/${activeSession.quiz.id}/questions/${currentQ.id}/download`
+                    : null
+                }
+                linkLabel="Buka tautan referensi soal"
+              />
 
               {currentQ.type === 'MULTIPLE_CHOICE' ? (
                 <>
@@ -543,19 +598,21 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                             }}
                           />
                           <span className="quiz-option-letter">{letter}</span>
-                          <span className="quiz-option-text">{opt.label}</span>
+                          <span className="quiz-option-text">
+                            <MathText text={opt.label} />
+                          </span>
                         </label>
                       );
                     })}
                   </div>
                 </>
               ) : (
-                <label className="quiz-essay-label">
-                  Jawaban Esai Anda
+                <div className="quiz-essay-label">
+                  <span>Jawaban Esai Anda</span>
                   <textarea
                     rows={6}
                     maxLength={20000}
-                    placeholder="Tulis jawaban esai Anda dengan jelas…"
+                    placeholder="Tulis jawaban esai Anda (mendukung LaTeX $...$)"
                     value={currentAns.textAnswer}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -572,7 +629,11 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                       );
                     }}
                   />
-                </label>
+                  <MathPreviewBox
+                    text={currentAns.textAnswer}
+                    title="Pratinjau rumus jawaban esai"
+                  />
+                </div>
               )}
 
               <div className="quiz-stage-footer">
@@ -688,8 +749,27 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
           </label>
           <label>
             Deskripsi / Petunjuk <span className="optional">(opsional)</span>
-            <textarea name="description" rows={2} maxLength={5000} />
+            <textarea
+              name="description"
+              rows={2}
+              maxLength={5000}
+              placeholder="Tulis deskripsi atau petunjuk kuis (mendukung LaTeX $...$)"
+              value={quizDescription}
+              onChange={(e) => setQuizDescription(e.target.value)}
+            />
           </label>
+          <MathPreviewBox text={quizDescription} />
+          <div className="workspace-two-col">
+            <label>
+              Tautan Referensi Kuis <span className="optional">(opsional)</span>
+              <input name="externalUrl" type="url" maxLength={1000} placeholder="https://..." />
+            </label>
+            <label>
+              Lampiran Berkas / Gambar Kuis{' '}
+              <span className="optional">(PDF, PNG, JPG, WEBP, DOCX, ZIP, maks. 4 MB)</span>
+              <input name="attachment" type="file" accept={ATTACHMENT_ACCEPT} />
+            </label>
+          </div>
           <div className="workspace-two-col">
             <label>
               Batas waktu (menit)
@@ -723,7 +803,8 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
           <div className="workspace-item-header">
             <div>
               <h5>
-                Hasil Kuis: {viewingResult.quiz.title} (Percobaan ke-{viewingResult.attempt.attemptNumber})
+                Hasil Kuis: <MathText text={viewingResult.quiz.title} /> (Percobaan ke-
+                {viewingResult.attempt.attemptNumber})
               </h5>
               <div className="workspace-badges">
                 <span
@@ -759,16 +840,31 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                     Soal {idx + 1} ({q.type === 'MULTIPLE_CHOICE' ? 'Pilihan Ganda' : 'Esai'}, maks.{' '}
                     {q.points} poin)
                   </strong>
-                  <p className="workspace-body-text">{q.prompt}</p>
+                  <MathText text={q.prompt} as="p" className="workspace-body-text" />
+                  <AttachmentViewer
+                    externalUrl={q.externalUrl}
+                    attachmentName={q.attachmentName}
+                    attachmentMime={q.attachmentMime}
+                    attachmentSize={q.attachmentSize}
+                    downloadPath={
+                      q.attachmentName
+                        ? `/api/classes/${classItem.id}/quizzes/${viewingResult.quiz.id}/questions/${q.id}/download`
+                        : null
+                    }
+                    linkLabel="Buka tautan referensi soal"
+                    compact
+                  />
                   {q.type === 'MULTIPLE_CHOICE' ? (
                     <p className="workspace-muted">
-                      Jawaban Anda: {selectedOpt ? selectedOpt.label : 'Tidak dijawab'}. Nilai:{' '}
+                      Jawaban Anda:{' '}
+                      {selectedOpt ? <MathText text={selectedOpt.label} /> : 'Tidak dijawab'}. Nilai:{' '}
                       <span className="num">{ans?.pointsAwarded ?? '0.00'}</span>
                     </p>
                   ) : (
                     <>
                       <p className="workspace-muted">
-                        Jawaban Anda: {ans?.textAnswer || 'Tidak dijawab'}
+                        Jawaban Anda:{' '}
+                        {ans?.textAnswer ? <MathText text={ans.textAnswer} /> : 'Tidak dijawab'}
                       </p>
                       <p className="workspace-muted">
                         Nilai Esai:{' '}
@@ -777,7 +873,9 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                           : 'Menunggu penilaian dosen'}
                       </p>
                       {ans?.feedback && (
-                        <p className="workspace-body-text">Komentar Dosen: {ans.feedback}</p>
+                        <p className="workspace-body-text">
+                          Komentar Dosen: <MathText text={ans.feedback} />
+                        </p>
                       )}
                     </>
                   )}
@@ -814,7 +912,9 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
               <article className="workspace-item-card" key={quiz.id}>
                 <div className="workspace-item-header">
                   <div>
-                    <h5>{quiz.title}</h5>
+                    <h5>
+                      <MathText text={quiz.title} />
+                    </h5>
                     <div className="workspace-badges">
                       <span
                         className={`workspace-badge ${
@@ -889,7 +989,21 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                   )}
                 </div>
 
-                {quiz.description && <p className="workspace-body-text">{quiz.description}</p>}
+                {quiz.description && (
+                  <MathText text={quiz.description} as="p" className="workspace-body-text" />
+                )}
+                <AttachmentViewer
+                  externalUrl={quiz.externalUrl}
+                  attachmentName={quiz.attachmentName}
+                  attachmentMime={quiz.attachmentMime}
+                  attachmentSize={quiz.attachmentSize}
+                  downloadPath={
+                    quiz.attachmentName
+                      ? `/api/classes/${classItem.id}/quizzes/${quiz.id}/download`
+                      : null
+                  }
+                  linkLabel="Buka tautan referensi kuis"
+                />
                 {(quiz.opensAt || quiz.closesAt) && (
                   <p className="workspace-muted">
                     Jadwal: {quiz.opensAt ? new Date(quiz.opensAt).toLocaleString('id-ID') : 'Sekarang'} s/d{' '}
@@ -981,7 +1095,20 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                                   {idx + 1}. [{q.type === 'MULTIPLE_CHOICE' ? 'Pilihan Ganda' : 'Esai'}] (
                                   {q.points} poin)
                                 </strong>
-                                <p className="workspace-body-text">{q.prompt}</p>
+                                <MathText text={q.prompt} as="p" className="workspace-body-text" />
+                                <AttachmentViewer
+                                  externalUrl={q.externalUrl}
+                                  attachmentName={q.attachmentName}
+                                  attachmentMime={q.attachmentMime}
+                                  attachmentSize={q.attachmentSize}
+                                  downloadPath={
+                                    q.attachmentName
+                                      ? `/api/classes/${classItem.id}/quizzes/${quiz.id}/questions/${q.id}/download`
+                                      : null
+                                  }
+                                  linkLabel="Buka tautan referensi soal"
+                                  compact
+                                />
                               </div>
                               {quiz.status === 'DRAFT' && (
                                 <button
@@ -998,7 +1125,8 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                               <ul className="quiz-builder-options-preview">
                                 {q.options.map((opt) => (
                                   <li key={opt.id}>
-                                    {opt.label} {opt.isCorrect && <strong>(Jawaban Benar)</strong>}
+                                    <MathText text={opt.label} />{' '}
+                                    {opt.isCorrect && <strong>(Jawaban Benar)</strong>}
                                   </li>
                                 ))}
                               </ul>
@@ -1041,8 +1169,37 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                       </div>
                       <label>
                         Teks Pertanyaan
-                        <textarea name="prompt" rows={2} minLength={1} maxLength={10000} required />
+                        <textarea
+                          name="prompt"
+                          rows={2}
+                          minLength={1}
+                          maxLength={10000}
+                          placeholder="Tulis pertanyaan kuis (mendukung LaTeX $...$)"
+                          value={questionPrompt}
+                          onChange={(e) => setQuestionPrompt(e.target.value)}
+                          required
+                        />
                       </label>
+                      <MathPreviewBox text={questionPrompt} title="Pratinjau rumus pertanyaan" />
+
+                      <div className="workspace-two-col">
+                        <label>
+                          Tautan Referensi Soal <span className="optional">(opsional)</span>
+                          <input
+                            name="externalUrl"
+                            type="url"
+                            maxLength={1000}
+                            placeholder="https://..."
+                          />
+                        </label>
+                        <label>
+                          Lampiran Gambar / Berkas Soal{' '}
+                          <span className="optional">
+                            (PDF, PNG, JPG, WEBP, DOCX, ZIP, maks. 4 MB)
+                          </span>
+                          <input name="attachment" type="file" accept={ATTACHMENT_ACCEPT} />
+                        </label>
+                      </div>
 
                       {questionType === 'MULTIPLE_CHOICE' && (
                         <div className="quiz-mcq-builder">
@@ -1060,7 +1217,7 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                               />
                               <input
                                 type="text"
-                                placeholder={`Opsi ${idx + 1}${idx < 2 ? ' (wajib)' : ' (opsional)'}`}
+                                placeholder={`Opsi ${idx + 1}${idx < 2 ? ' (wajib, mendukung LaTeX)' : ' (opsional, mendukung LaTeX)'}`}
                                 value={optVal}
                                 required={idx < 2}
                                 onChange={(e) => {
@@ -1071,6 +1228,22 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                               />
                             </div>
                           ))}
+                          {mcqOptions.some((o) => containsLatexMath(o)) && (
+                            <div className="math-preview-box" aria-live="polite">
+                              <span className="math-preview-label">Pratinjau rumus opsi pilihan ganda</span>
+                              <ul className="quiz-builder-options-preview">
+                                {mcqOptions
+                                  .map((o, idx) => ({ o: o.trim(), idx }))
+                                  .filter((item) => item.o.length > 0)
+                                  .map((item) => (
+                                    <li key={item.idx}>
+                                      {OPTION_LETTERS[item.idx] ?? item.idx + 1}.{' '}
+                                      <MathText text={item.o} />
+                                    </li>
+                                  ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
                       )}
                       <div>
@@ -1166,11 +1339,26 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                             return (
                               <div key={q.id} className="quiz-review-item">
                                 <strong>
-                                  {idx + 1}. [Pilihan Ganda] {q.prompt}
+                                  {idx + 1}. [Pilihan Ganda] <MathText text={q.prompt} />
                                 </strong>
+                                <AttachmentViewer
+                                  externalUrl={q.externalUrl}
+                                  attachmentName={q.attachmentName}
+                                  attachmentMime={q.attachmentMime}
+                                  attachmentSize={q.attachmentSize}
+                                  downloadPath={
+                                    q.attachmentName
+                                      ? `/api/classes/${classItem.id}/quizzes/${quiz.id}/questions/${q.id}/download`
+                                      : null
+                                  }
+                                  linkLabel="Buka tautan referensi soal"
+                                  compact
+                                />
                                 <p className="workspace-muted">
-                                  Jawaban: {selectedOpt ? selectedOpt.label : 'Tidak dijawab'}. Skor
-                                  otomatis: <span className="num">{ans?.pointsAwarded ?? '0.00'}</span> /{' '}
+                                  Jawaban:{' '}
+                                  {selectedOpt ? <MathText text={selectedOpt.label} /> : 'Tidak dijawab'}.
+                                  Skor otomatis:{' '}
+                                  <span className="num">{ans?.pointsAwarded ?? '0.00'}</span> /{' '}
                                   <span className="num">{q.points}</span>
                                 </p>
                               </div>
@@ -1180,8 +1368,21 @@ export function QuizzesSection({ classItem, role, onStatusMessage }: QuizzesSect
                           return (
                             <div key={q.id} className="quiz-review-item">
                               <strong>
-                                {idx + 1}. [Esai, maks. {q.points} poin] {q.prompt}
+                                {idx + 1}. [Esai, maks. {q.points} poin] <MathText text={q.prompt} />
                               </strong>
+                              <AttachmentViewer
+                                externalUrl={q.externalUrl}
+                                attachmentName={q.attachmentName}
+                                attachmentMime={q.attachmentMime}
+                                attachmentSize={q.attachmentSize}
+                                downloadPath={
+                                  q.attachmentName
+                                    ? `/api/classes/${classItem.id}/quizzes/${quiz.id}/questions/${q.id}/download`
+                                    : null
+                                }
+                                linkLabel="Buka tautan referensi soal"
+                                compact
+                              />
                               {ans?.textAnswer ? (
                                 <ExpandableAnswerText
                                   key={`${gradingAttempt.attempt.id}-${q.id}`}

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   API,
+  ATTACHMENT_ACCEPT,
   clearAuthMemory,
   downloadFile,
-  formatFileSize,
   readFileAsAttachment,
   request,
   type Assignment,
@@ -15,11 +15,14 @@ import {
   type Topic,
   type User,
 } from './lib/api.ts';
+import { applyServiceWorkerUpdate, useOnlineStatus, usePWAInstall } from './lib/pwa.ts';
 import { QuizzesSection } from './components/QuizzesSection.tsx';
 import { GradesSection } from './components/GradesSection.tsx';
 import { AnnouncementsPanel, ForumPanel } from './components/CommunicationSection.tsx';
 import { NotificationBell, ProfileBanner, RoleSummaryDashboard } from './components/DashboardAndProfile.tsx';
 import { ExpandableAnswerText } from './components/ExpandableAnswerText.tsx';
+import { MathPreviewBox, MathText } from './components/MathText.tsx';
+import { AttachmentViewer } from './components/AttachmentViewer.tsx';
 import './classes.css';
 
 type WorkspaceTab = 'materials' | 'assignments' | 'quizzes' | 'announcements' | 'forum' | 'grades';
@@ -85,6 +88,9 @@ export default function App() {
   const [dosenView, setDosenView] = useState<'classes' | 'summary'>('classes');
   const dosenTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [logoFailed, setLogoFailed] = useState(false);
+  const isOnline = useOnlineStatus();
+  const { canInstall, install } = usePWAInstall();
+  const [swUpdateAvailable, setSwUpdateAvailable] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
       const saved = window.localStorage.getItem('sintaks-theme');
@@ -94,6 +100,12 @@ export default function App() {
       return 'light';
     }
   });
+
+  useEffect(() => {
+    const onSwUpdate = () => setSwUpdateAvailable(true);
+    window.addEventListener('sintaks:sw-update-available', onSwUpdate);
+    return () => window.removeEventListener('sintaks:sw-update-available', onSwUpdate);
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -348,6 +360,15 @@ export default function App() {
               )}
               <span className="theme-toggle-label">{theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}</span>
             </button>
+            {canInstall && (
+              <button
+                type="button"
+                className="button secondary pwa-install-btn"
+                onClick={() => void install()}
+              >
+                Pasang Aplikasi
+              </button>
+            )}
             {user && !showAuthView && !user.mustChangePassword && <NotificationBell onNavigate={handleNavigate} />}
             {user && !showAuthView && inWorkspace && (
               <button
@@ -362,6 +383,28 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {!isOnline && (
+        <div className="offline-banner" role="status" aria-live="polite">
+          <span>
+            <strong>Mode Luring:</strong> Koneksi internet terputus. Aset aplikasi tetap tersimpan;
+            sinkronisasi data membutuhkan koneksi.
+          </span>
+        </div>
+      )}
+
+      {swUpdateAvailable && (
+        <div className="sw-update-banner" role="status" aria-live="polite">
+          <span>Pembaruan aplikasi SINTAKS tersedia.</span>
+          <button
+            type="button"
+            className="button secondary inline-btn"
+            onClick={() => void applyServiceWorkerUpdate()}
+          >
+            Muat Ulang
+          </button>
+        </div>
+      )}
 
       <main className={showAuthView ? 'page-main page-main--auth' : 'page-main'}>
         {showAuthView ? (
@@ -1175,6 +1218,9 @@ function ClassWorkspace({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [materialType, setMaterialType] = useState<'TEXT' | 'LINK' | 'FILE'>('TEXT');
+  const [materialContent, setMaterialContent] = useState('');
+  const [assignmentInstructions, setAssignmentInstructions] = useState('');
+  const [studentTextDrafts, setStudentTextDrafts] = useState<Record<string, string>>({});
   const [rosterByAssignment, setRosterByAssignment] = useState<Record<string, RosterSubmissionItem[]>>({});
   const [gradingTarget, setGradingTarget] = useState<{
     assignmentId: string;
@@ -1292,7 +1338,7 @@ function ClassWorkspace({
     const form = new FormData(formEl);
     const topicIdRaw = String(form.get('topicId') ?? '').trim();
     const title = String(form.get('title') ?? '').trim();
-    const content = String(form.get('content') ?? '').trim() || null;
+    const content = materialContent.trim() || null;
     const externalUrl = String(form.get('externalUrl') ?? '').trim() || null;
     const isPublished = form.get('isPublished') === 'on';
     try {
@@ -1314,6 +1360,7 @@ function ClassWorkspace({
         isPublished,
       });
       formEl.reset();
+      setMaterialContent('');
       setMaterialType('TEXT');
       setMessage('Materi pembelajaran berhasil disimpan.');
       await loadWorkspace();
@@ -1364,14 +1411,21 @@ function ClassWorkspace({
     const form = new FormData(formEl);
     const dueRaw = String(form.get('dueAt') ?? '').trim();
     const dueAt = dueRaw ? new Date(dueRaw).toISOString() : null;
+    const externalUrl = String(form.get('externalUrl') ?? '').trim() || null;
+    const file = form.get('attachment');
     try {
+      const attachment: AttachmentPayload | null =
+        file instanceof File && file.size > 0 ? await readFileAsAttachment(file) : null;
       await request(`/api/classes/${classItem.id}/assignments`, {
         title: String(form.get('title') ?? '').trim(),
-        instructions: String(form.get('instructions') ?? '').trim(),
+        instructions: assignmentInstructions.trim(),
+        externalUrl,
+        attachment,
         dueAt,
         allowLate: form.get('allowLate') === 'on',
       });
       formEl.reset();
+      setAssignmentInstructions('');
       setMessage('Tugas baru berhasil dibuat dan notifikasi dikirim ke mahasiswa.');
       onWorkspaceChanged();
       await loadWorkspace();
@@ -1520,6 +1574,11 @@ function ClassWorkspace({
         attachment,
       })) as { submission: SubmissionRecord };
       formEl.reset();
+      setStudentTextDrafts((prev) => {
+        const next = { ...prev };
+        delete next[assignmentId];
+        return next;
+      });
       setMessage(`Pengumpulan berhasil dicatat (Versi ke-${result.submission.version}).`);
       onWorkspaceChanged();
       await loadWorkspace();
@@ -1552,7 +1611,9 @@ function ClassWorkspace({
       <article className="workspace-item-card" key={material.id}>
         <div className="workspace-item-header">
           <div>
-            <h5>{material.title}</h5>
+            <h5>
+              <MathText text={material.title} />
+            </h5>
             <div className="workspace-badges">
               <span className="workspace-badge">{typeLabel}</span>
               {role === 'DOSEN' && (
@@ -1583,40 +1644,21 @@ function ClassWorkspace({
             </div>
           )}
         </div>
-        {material.content && <p className="workspace-body-text">{material.content}</p>}
-        {material.externalUrl && (
-          <p className="workspace-link-row">
-            <a
-              href={material.externalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="workspace-external-link"
-            >
-              Buka tautan materi
-            </a>
-          </p>
+        {material.content && (
+          <MathText text={material.content} as="p" className="workspace-body-text" />
         )}
-        {material.attachmentName && (
-          <div className="workspace-attachment-row">
-            <span>
-              {material.attachmentName}
-              {material.attachmentSize ? ` (${formatFileSize(material.attachmentSize)})` : ''}
-            </span>
-            <button
-              type="button"
-              className="button secondary inline-btn"
-              disabled={busy}
-              onClick={() =>
-                void handleDownload(
-                  `/api/classes/${classItem.id}/materials/${material.id}/download`,
-                  material.attachmentName!,
-                )
-              }
-            >
-              Unduh
-            </button>
-          </div>
-        )}
+        <AttachmentViewer
+          externalUrl={material.externalUrl}
+          attachmentName={material.attachmentName}
+          attachmentMime={material.attachmentMime}
+          attachmentSize={material.attachmentSize}
+          downloadPath={
+            material.attachmentName
+              ? `/api/classes/${classItem.id}/materials/${material.id}/download`
+              : null
+          }
+          linkLabel="Buka tautan materi"
+        />
       </article>
     );
   }
@@ -1752,11 +1794,11 @@ function ClassWorkspace({
                   )}
                   {materialType === 'FILE' && (
                     <label>
-                      Pilih berkas (PDF, TXT, MD, CSV, PNG, JPG, DOCX, ZIP, maks. 4 MB)
+                      Pilih berkas (PDF, TXT, MD, CSV, PNG, JPG, WEBP, DOCX, ZIP, maks. 4 MB)
                       <input
                         name="attachment"
                         type="file"
-                        accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg,.docx,.zip"
+                        accept={ATTACHMENT_ACCEPT}
                         required
                       />
                     </label>
@@ -1773,9 +1815,17 @@ function ClassWorkspace({
                       name="content"
                       rows={3}
                       maxLength={20000}
+                      placeholder={
+                        materialType === 'TEXT'
+                          ? 'Tulis isi materi (mendukung LaTeX $...$)'
+                          : 'Tulis catatan tambahan (opsional, mendukung LaTeX $...$)'
+                      }
+                      value={materialContent}
+                      onChange={(e) => setMaterialContent(e.target.value)}
                       required={materialType === 'TEXT'}
                     />
                   </label>
+                  <MathPreviewBox text={materialContent} />
                   <label className="filter-option workspace-checkbox">
                     <input type="checkbox" name="isPublished" defaultChecked /> Publikasikan langsung ke
                     mahasiswa
@@ -1858,8 +1908,34 @@ function ClassWorkspace({
                 </label>
                 <label>
                   Instruksi tugas
-                  <textarea name="instructions" rows={3} minLength={1} maxLength={20000} required />
+                  <textarea
+                    name="instructions"
+                    rows={3}
+                    minLength={1}
+                    maxLength={20000}
+                    placeholder="Tulis instruksi tugas (mendukung LaTeX $...$)"
+                    value={assignmentInstructions}
+                    onChange={(e) => setAssignmentInstructions(e.target.value)}
+                    required
+                  />
                 </label>
+                <MathPreviewBox text={assignmentInstructions} />
+                <div className="workspace-two-col">
+                  <label>
+                    Tautan Referensi <span className="optional">(opsional)</span>
+                    <input
+                      name="externalUrl"
+                      type="url"
+                      maxLength={1000}
+                      placeholder="https://..."
+                    />
+                  </label>
+                  <label>
+                    Lampiran Berkas / Gambar{' '}
+                    <span className="optional">(PDF, PNG, JPG, WEBP, DOCX, ZIP, maks. 4 MB)</span>
+                    <input name="attachment" type="file" accept={ATTACHMENT_ACCEPT} />
+                  </label>
+                </div>
                 <div className="workspace-two-col">
                   <label>
                     Batas waktu pengumpulan <span className="optional">(opsional)</span>
@@ -1911,7 +1987,9 @@ function ClassWorkspace({
                     <article className="workspace-item-card" key={assignment.id}>
                       <div className="workspace-item-header">
                         <div>
-                          <h5>{assignment.title}</h5>
+                          <h5>
+                            <MathText text={assignment.title} />
+                          </h5>
                           <div className="workspace-badges">
                             <span
                               className={`workspace-badge ${
@@ -1965,7 +2043,23 @@ function ClassWorkspace({
                       {role === 'MAHASISWA' ? (
                         <div className="assignment-split-grid">
                           <div className="assignment-instructions-col">
-                            <p className="workspace-body-text">{assignment.instructions}</p>
+                            <MathText
+                              text={assignment.instructions}
+                              as="p"
+                              className="workspace-body-text"
+                            />
+                            <AttachmentViewer
+                              externalUrl={assignment.externalUrl}
+                              attachmentName={assignment.attachmentName}
+                              attachmentMime={assignment.attachmentMime}
+                              attachmentSize={assignment.attachmentSize}
+                              downloadPath={
+                                assignment.attachmentName
+                                  ? `/api/classes/${classItem.id}/assignments/${assignment.id}/download`
+                                  : null
+                              }
+                              linkLabel="Buka tautan referensi tugas"
+                            />
 
                             {mySub && (
                               <div className="workspace-receipt">
@@ -1987,34 +2081,25 @@ function ClassWorkspace({
                                 </div>
                                 {mySub.gradeStatus === 'PUBLISHED' && mySub.feedback && (
                                   <p className="workspace-body-text">
-                                    <strong>Umpan Balik Dosen:</strong> {mySub.feedback}
+                                    <strong>Umpan Balik Dosen:</strong>{' '}
+                                    <MathText text={mySub.feedback} />
                                   </p>
                                 )}
                                 {mySub.textAnswer && (
-                                  <p className="workspace-body-text">{mySub.textAnswer}</p>
+                                  <MathText
+                                    text={mySub.textAnswer}
+                                    as="p"
+                                    className="workspace-body-text"
+                                  />
                                 )}
                                 {mySub.attachmentName && (
-                                  <div className="workspace-attachment-row">
-                                    <span>
-                                      {mySub.attachmentName}
-                                      {mySub.attachmentSize
-                                        ? ` (${formatFileSize(mySub.attachmentSize)})`
-                                        : ''}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      className="button secondary inline-btn"
-                                      disabled={busy}
-                                      onClick={() =>
-                                        void handleDownload(
-                                          `/api/classes/${classItem.id}/assignments/${assignment.id}/submissions/${mySub.id}/download`,
-                                          mySub.attachmentName!,
-                                        )
-                                      }
-                                    >
-                                      Unduh
-                                    </button>
-                                  </div>
+                                  <AttachmentViewer
+                                    attachmentName={mySub.attachmentName}
+                                    attachmentMime={mySub.attachmentMime}
+                                    attachmentSize={mySub.attachmentSize}
+                                    downloadPath={`/api/classes/${classItem.id}/assignments/${assignment.id}/submissions/${mySub.id}/download`}
+                                    compact
+                                  />
                                 )}
                               </div>
                             )}
@@ -2043,16 +2128,27 @@ function ClassWorkspace({
                                     name="textAnswer"
                                     rows={4}
                                     maxLength={20000}
-                                    defaultValue={mySub?.textAnswer ?? ''}
+                                    placeholder="Tulis jawaban teks Anda (mendukung LaTeX $...$)"
+                                    value={studentTextDrafts[assignment.id] ?? (mySub?.textAnswer ?? '')}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setStudentTextDrafts((prev) => ({
+                                        ...prev,
+                                        [assignment.id]: val,
+                                      }));
+                                    }}
                                   />
                                 </label>
+                                <MathPreviewBox
+                                  text={studentTextDrafts[assignment.id] ?? (mySub?.textAnswer ?? '')}
+                                />
                                 <label>
                                   Lampiran berkas{' '}
-                                  <span className="optional">(PDF, DOCX, ZIP, PNG, JPG, maks. 4 MB)</span>
+                                  <span className="optional">(PDF, DOCX, ZIP, PNG, JPG, WEBP, maks. 4 MB)</span>
                                   <input
                                     name="attachment"
                                     type="file"
-                                    accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg,.docx,.zip"
+                                    accept={ATTACHMENT_ACCEPT}
                                   />
                                 </label>
                                 <p className="workspace-muted">
@@ -2077,7 +2173,23 @@ function ClassWorkspace({
                         </div>
                       ) : (
                         <>
-                          <p className="workspace-body-text">{assignment.instructions}</p>
+                          <MathText
+                            text={assignment.instructions}
+                            as="p"
+                            className="workspace-body-text"
+                          />
+                          <AttachmentViewer
+                            externalUrl={assignment.externalUrl}
+                            attachmentName={assignment.attachmentName}
+                            attachmentMime={assignment.attachmentMime}
+                            attachmentSize={assignment.attachmentSize}
+                            downloadPath={
+                              assignment.attachmentName
+                                ? `/api/classes/${classItem.id}/assignments/${assignment.id}/download`
+                                : null
+                            }
+                            linkLabel="Buka tautan referensi tugas"
+                          />
                           {roster && (
                             <div className="workspace-roster-box">
                               <div className="workspace-item-header">
@@ -2271,27 +2383,13 @@ function ClassWorkspace({
                                         </p>
                                       )}
                                       {gradingTarget.submission.attachmentName && (
-                                        <div className="workspace-attachment-row">
-                                          <span>
-                                            {gradingTarget.submission.attachmentName}
-                                            {gradingTarget.submission.attachmentSize
-                                              ? ` (${formatFileSize(gradingTarget.submission.attachmentSize)})`
-                                              : ''}
-                                          </span>
-                                          <button
-                                            type="button"
-                                            className="button secondary inline-btn"
-                                            disabled={busy}
-                                            onClick={() =>
-                                              void handleDownload(
-                                                `/api/classes/${classItem.id}/assignments/${assignment.id}/submissions/${gradingTarget.submission.id}/download`,
-                                                gradingTarget.submission.attachmentName!,
-                                              )
-                                            }
-                                          >
-                                            Unduh
-                                          </button>
-                                        </div>
+                                        <AttachmentViewer
+                                          attachmentName={gradingTarget.submission.attachmentName}
+                                          attachmentMime={gradingTarget.submission.attachmentMime}
+                                          attachmentSize={gradingTarget.submission.attachmentSize}
+                                          downloadPath={`/api/classes/${classItem.id}/assignments/${assignment.id}/submissions/${gradingTarget.submission.id}/download`}
+                                          compact
+                                        />
                                       )}
                                       {submittedRosterEntries.length > 1 && activeGradeIdx >= 0 && (
                                         <div className="grading-student-nav">

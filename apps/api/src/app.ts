@@ -52,9 +52,17 @@ export function isSameRequestOrigin(req: express.Request, requestOrigin: string)
   const exact = parseExactOriginUrl(requestOrigin);
   if (!exact) return false;
   const host = req.get('host');
-  if (!host) return false;
-  const expected = `${req.protocol}://${host}`;
-  return exact === expected;
+  if (host && exact === `${req.protocol}://${host}`) {
+    return true;
+  }
+  const trustProxy = req.app?.get('trust proxy');
+  if (trustProxy && trustProxy !== false) {
+    const forwardedHost = req.get('x-forwarded-host')?.split(',')[0]?.trim();
+    if (forwardedHost && exact === `${req.protocol}://${forwardedHost}`) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function createApp(devFrontend?: DevFrontend, runtimeEnv: AppEnv = env) {
@@ -139,7 +147,18 @@ export function createApp(devFrontend?: DevFrontend, runtimeEnv: AppEnv = env) {
       }
     });
   } else if (webDistDir) {
-    app.use(express.static(webDistDir));
+    app.use(
+      express.static(webDistDir, {
+        setHeaders(res, filePath) {
+          if (
+            filePath.endsWith(`${path.sep}sw.js`) ||
+            filePath.endsWith(`${path.sep}manifest.webmanifest`)
+          ) {
+            res.setHeader('Cache-Control', 'no-cache');
+          }
+        },
+      }),
+    );
     app.get('*', (req, res, next) => {
       if (req.method !== 'GET') return next();
       res.setHeader('Cache-Control', 'no-store');

@@ -66,6 +66,10 @@ export type Assignment = {
   classId: string;
   title: string;
   instructions: string;
+  externalUrl: string | null;
+  attachmentName: string | null;
+  attachmentMime: string | null;
+  attachmentSize: number | null;
   dueAt: string | null;
   status: 'OPEN' | 'CLOSED';
   allowLate: boolean;
@@ -93,6 +97,10 @@ export type QuizQuestion = {
   quizId: string;
   type: 'MULTIPLE_CHOICE' | 'ESSAY';
   prompt: string;
+  externalUrl: string | null;
+  attachmentName: string | null;
+  attachmentMime: string | null;
+  attachmentSize: number | null;
   points: string;
   position: number;
   options: QuizOption[];
@@ -118,6 +126,10 @@ export type Quiz = {
   classId: string;
   title: string;
   description: string | null;
+  externalUrl: string | null;
+  attachmentName: string | null;
+  attachmentMime: string | null;
+  attachmentSize: number | null;
   timeLimitMinutes: number;
   maxAttempts: number;
   opensAt: string | null;
@@ -257,6 +269,12 @@ export type DashboardSummary =
 export type AttachmentPayload = { name: string; mimeType: string; dataBase64: string };
 
 export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+export const ATTACHMENT_ACCEPT = '.pdf,.txt,.md,.csv,.png,.jpg,.jpeg,.webp,.docx,.zip';
+
+export function isImageMimeType(mime: string | null | undefined): boolean {
+  return mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/webp';
+}
+
 const rawApiUrl = (import.meta.env.VITE_API_URL ?? '').trim();
 export const API = typeof window !== 'undefined' && window.location.port !== '5173' ? '' : rawApiUrl.replace(/\/$/, '');
 
@@ -287,11 +305,11 @@ export async function request(path: string, body?: unknown, method = 'POST') {
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
-  const data = response.status === 204 ? null : await response.json();
+  const data = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
     const errMsg = typeof data?.error === 'string'
       ? data.error
-      : data?.error?.message ?? data?.message ?? 'Permintaan gagal. Coba kembali.';
+      : data?.error?.message ?? data?.message ?? `Permintaan gagal (${response.status}). Coba kembali.`;
     throw new Error(errMsg);
   }
   if (data && typeof data === 'object' && path === '/auth/login') {
@@ -317,6 +335,7 @@ function inferMimeType(file: File) {
   if (lower.endsWith('.pdf')) return 'application/pdf';
   if (lower.endsWith('.png')) return 'image/png';
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
   if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (lower.endsWith('.zip')) return 'application/zip';
   return 'application/octet-stream';
@@ -348,6 +367,22 @@ export function readFileAsAttachment(file: File): Promise<AttachmentPayload> {
     reader.onerror = () => reject(new Error('Gagal membaca berkas lampiran.'));
     reader.readAsDataURL(file);
   });
+}
+
+export async function fetchAuthenticatedBlobUrl(path: string): Promise<string> {
+  const authHeaders: Record<string, string> = memorySessionToken
+    ? { Authorization: `Session ${memorySessionToken}` }
+    : {};
+  const response = await fetch(`${API}${path}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: authHeaders,
+  });
+  if (!response.ok) {
+    throw new Error('Gagal memuat pratinjau lampiran.');
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 export async function downloadFile(path: string, fallbackName: string) {

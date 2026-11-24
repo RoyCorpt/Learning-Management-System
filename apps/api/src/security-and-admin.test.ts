@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { Algorithm, hash as argon2Hash } from '@node-rs/argon2';
 import { inArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import type { Server } from 'node:http';
+import { request as httpRequest, type Server } from 'node:http';
 import { afterAll, describe, expect, it } from 'vitest';
 import { db, pool } from '../../../src/db/index.js';
 import { auditEvents, users } from '../../../src/db/schema.js';
@@ -113,6 +113,36 @@ describe('Environment, CORS, cookie, and proxy hardening', () => {
         COOKIE_SECURE: 'false',
       }),
     ).toThrow(/COOKIE_SECURE/);
+
+    // Cloud Run production startup without explicit WEB_ORIGIN / COOKIE_SECURE / SMTP_* should apply secure defaults.
+    const cloudRunProd = parseEnv({
+      NODE_ENV: 'production',
+      K_SERVICE: 'ais-pre-sintaks',
+    });
+    expect(cloudRunProd.COOKIE_SECURE).toBe(true);
+    expect(cloudRunProd.TRUST_PROXY).toBe('1');
+    expect(cloudRunProd.WEB_ORIGIN).toBeUndefined();
+    expect(buildAllowedOrigins(cloudRunProd)).toEqual(new Set());
+
+    const cloudRunWithHosts = parseEnv({
+      NODE_ENV: 'production',
+      K_SERVICE: 'ais-pre-sintaks',
+      NG_ALLOWED_HOSTS: 'sintaks-app.asia-southeast1.run.app, extra.example.com',
+    });
+    expect(cloudRunWithHosts.WEB_ORIGIN).toBe('https://sintaks-app.asia-southeast1.run.app');
+    expect(buildAllowedOrigins(cloudRunWithHosts)).toEqual(
+      new Set(['https://sintaks-app.asia-southeast1.run.app', 'https://extra.example.com']),
+    );
+
+    const devProxyWithHosts = parseEnv({
+      NODE_ENV: 'development',
+      K_SERVICE: 'ais-dev-sintaks',
+      NG_ALLOWED_HOSTS: 'ais-dev-sintaks.asia-southeast1.run.app',
+    });
+    expect(devProxyWithHosts.WEB_ORIGIN).toBe('http://localhost:3000');
+    expect(buildAllowedOrigins(devProxyWithHosts)).toEqual(
+      new Set(['http://localhost:3000', 'https://ais-dev-sintaks.asia-southeast1.run.app']),
+    );
   });
 
   it('enforces exact CORS allowlist, allows credentials only for trusted origins, and rejects untrusted cross-site origins', async () => {
@@ -152,6 +182,68 @@ describe('Environment, CORS, cookie, and proxy hardening', () => {
       const noOriginHealth = await fetch(`${base}/health`);
       expect(noOriginHealth.status).toBe(200);
       expect(noOriginHealth.headers.get('access-control-allow-origin')).toBeNull();
+    } finally {
+      await stopTestServer(server);
+    }
+  }, 15000);
+
+  it('allows same-origin HTTPS requests behind Cloud Run proxy even when WEB_ORIGIN and SMTP are omitted', async () => {
+    const cloudRunEnv = parseEnv({
+      NODE_ENV: 'production',
+      K_SERVICE: 'ais-pre-sintaks',
+    });
+    const { server, base } = await startTestServer(cloudRunEnv);
+    const sendPost = (headers: Record<string, string>, body: string) =>
+      new Promise<{ status: number; json: () => unknown }>((resolve, reject) => {
+        const url = new URL(`${base}/auth/reset-password/verify`);
+        const req = httpRequest(
+          {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': String(Buffer.byteLength(body)),
+              ...headers,
+            },
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk: Buffer) => chunks.push(chunk));
+            res.on('end', () => {
+              const raw = Buffer.concat(chunks).toString('utf8');
+              resolve({ status: res.statusCode ?? 0, json: () => JSON.parse(raw) });
+            });
+          },
+        );
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+      });
+
+    try {
+      const sameOriginRes = await sendPost(
+        {
+          Host: 'ais-pre-sintaks.asia-southeast1.run.app',
+          Origin: 'https://ais-pre-sintaks.asia-southeast1.run.app',
+          'X-Forwarded-Proto': 'https',
+        },
+        JSON.stringify({ token: 'short' }),
+      );
+      // Request reaches route validation (400 INVALID_RESET_TOKEN) instead of failing CORS_ORIGIN_DENIED (403).
+      expect(sameOriginRes.status).toBe(400);
+
+      const crossOriginRes = await sendPost(
+        {
+          Host: 'ais-pre-sintaks.asia-southeast1.run.app',
+          Origin: 'https://evil.attacker.invalid',
+          'X-Forwarded-Proto': 'https',
+        },
+        JSON.stringify({ token: 'short' }),
+      );
+      expect(crossOriginRes.status).toBe(403);
+      expect((crossOriginRes.json() as { error: { code: string } }).error.code).toBe('CORS_ORIGIN_DENIED');
     } finally {
       await stopTestServer(server);
     }

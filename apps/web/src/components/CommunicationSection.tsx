@@ -7,6 +7,7 @@ import {
   type Role,
   type User,
 } from '../lib/api.ts';
+import { MathPreviewBox, MathText } from './MathText.tsx';
 
 const EDIT_WINDOW_MS = 15 * 60_000;
 
@@ -30,6 +31,7 @@ export function AnnouncementsPanel({
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [announcementBody, setAnnouncementBody] = useState('');
 
   async function loadAnnouncements() {
     setLoading(true);
@@ -58,9 +60,10 @@ export function AnnouncementsPanel({
     try {
       await request(`/api/classes/${classItem.id}/announcements`, {
         title: String(form.get('title') ?? '').trim(),
-        body: String(form.get('body') ?? '').trim(),
+        body: announcementBody.trim(),
       });
       formEl.reset();
+      setAnnouncementBody('');
       onStatusMessage('Pengumuman berhasil dikirim dan notifikasi diteruskan ke mahasiswa.');
       await loadAnnouncements();
     } catch (error) {
@@ -82,7 +85,9 @@ export function AnnouncementsPanel({
         <article className="workspace-item-card" key={item.id}>
           <div className="workspace-item-header">
             <div>
-              <h5>{item.title}</h5>
+              <h5>
+                <MathText text={item.title} />
+              </h5>
               <div className="workspace-badges">
                 <span className="workspace-badge open">{item.authorName}</span>
                 <span className="workspace-badge">{roleLabel(item.authorRole)}</span>
@@ -92,7 +97,7 @@ export function AnnouncementsPanel({
               </div>
             </div>
           </div>
-          <p className="workspace-body-text">{item.body}</p>
+          <MathText text={item.body} as="p" className="workspace-body-text" />
         </article>
       ))}
     </div>
@@ -109,8 +114,18 @@ export function AnnouncementsPanel({
           </label>
           <label>
             Isi pengumuman
-            <textarea name="body" rows={4} minLength={1} maxLength={15000} required />
+            <textarea
+              name="body"
+              rows={4}
+              minLength={1}
+              maxLength={15000}
+              placeholder="Tulis isi pengumuman (mendukung LaTeX $...$)"
+              value={announcementBody}
+              onChange={(e) => setAnnouncementBody(e.target.value)}
+              required
+            />
           </label>
+          <MathPreviewBox text={announcementBody} />
           <div>
             <button className="button primary inline-btn" disabled={busy}>
               {busy ? 'Mengirim…' : 'Terbitkan Pengumuman'}
@@ -137,6 +152,7 @@ export function ForumPanel({
   const [busy, setBusy] = useState(false);
   const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
   const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
+  const [topicBody, setTopicBody] = useState('');
 
   async function loadTopics() {
     setLoading(true);
@@ -165,9 +181,10 @@ export function ForumPanel({
     try {
       await request(`/api/classes/${classItem.id}/forum/topics`, {
         title: String(form.get('title') ?? '').trim(),
-        body: String(form.get('body') ?? '').trim(),
+        body: topicBody.trim(),
       });
       formEl.reset();
+      setTopicBody('');
       onStatusMessage('Topik diskusi baru berhasil dibuat.');
       await loadTopics();
     } catch (error) {
@@ -252,8 +269,18 @@ export function ForumPanel({
         </label>
         <label>
           Pertanyaan atau bahasan
-          <textarea name="body" rows={4} minLength={1} maxLength={15000} required />
+          <textarea
+            name="body"
+            rows={4}
+            minLength={1}
+            maxLength={15000}
+            placeholder="Tulis pertanyaan atau bahasan (mendukung LaTeX $...$)"
+            value={topicBody}
+            onChange={(e) => setTopicBody(e.target.value)}
+            required
+          />
         </label>
+        <MathPreviewBox text={topicBody} />
         <div>
           <button className="button primary inline-btn" disabled={busy}>
             {busy ? 'Mengirim…' : 'Terbitkan Topik'}
@@ -279,7 +306,9 @@ export function ForumPanel({
               <article className="workspace-item-card" key={topic.id}>
                 <div className="workspace-item-header">
                   <div>
-                    <h5>{topic.title}</h5>
+                    <h5>
+                      <MathText text={topic.title} />
+                    </h5>
                     <div className="workspace-badges">
                       <span
                         className={`workspace-badge ${topic.authorRole === 'DOSEN' ? 'open' : ''}`}
@@ -339,7 +368,7 @@ export function ForumPanel({
                     </div>
                   </form>
                 ) : (
-                  <p className="workspace-body-text">{topic.body}</p>
+                  <MathText text={topic.body} as="p" className="workspace-body-text" />
                 )}
 
                 <div className="workspace-submission-box">
@@ -403,7 +432,7 @@ export function ForumPanel({
                                 </div>
                               </form>
                             ) : (
-                              <p className="workspace-body-text">{reply.body}</p>
+                              <MathText text={reply.body} as="p" className="workspace-body-text" />
                             )}
                           </div>
                         );
@@ -421,7 +450,7 @@ export function ForumPanel({
                         name="body"
                         rows={2}
                         maxLength={10000}
-                        placeholder="Tulis balasan Anda di sini…"
+                        placeholder="Tulis balasan Anda di sini (mendukung LaTeX $...$)"
                         required
                       />
                     </label>

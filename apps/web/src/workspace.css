@@ -2016,3 +2016,106 @@
     font-size: var(--text-md);
   }
 }
+
+/* ---------- LATEX / KATEX MATH & ATTACHMENT VIEWER ---------- */
+.math-preview-box {
+  display: grid;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
+  border: var(--rule-hair) solid var(--color-accent-border);
+  border-radius: var(--radius-input);
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.math-preview-label {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-accent-text);
+}
+
+.math-inline-span {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.math-display-block {
+  display: block;
+  margin: var(--space-xs) 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-input);
+  background: var(--color-paper-2);
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.attachment-bundle {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.attachment-bundle.compact {
+  margin-top: var(--space-2xs);
+}
+
+.attachment-image-figure {
+  margin: 0;
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-input);
+  background: var(--color-paper);
+  max-width: 100%;
+}
+
+.attachment-image-trigger {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  text-align: left;
+  border-radius: var(--radius-input);
+  overflow: hidden;
+}
+
+.attachment-image-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-input);
+}
+
+.attachment-image-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.attachment-lightbox-body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--color-paper);
+}
+
+.attachment-lightbox-img {
+  display: block;
+  max-width: 100%;
+  max-height: 75vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-input);
+}
+

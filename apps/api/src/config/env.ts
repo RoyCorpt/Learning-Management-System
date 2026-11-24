@@ -70,6 +70,24 @@ export function isValidFromAddress(value: string): boolean {
   return simpleEmailRegex.test(emailPart);
 }
 
+export function parseOriginsFromHosts(rawHosts?: string): string[] {
+  if (!rawHosts) return [];
+  const origins: string[] = [];
+  for (const token of rawHosts.split(',')) {
+    const host = token.trim();
+    if (!host || host.includes('*') || host.includes('/') || host.includes('@')) continue;
+    const origin = parseExactOriginUrl(`https://${host}`);
+    if (origin && !origins.includes(origin)) {
+      origins.push(origin);
+    }
+  }
+  return origins;
+}
+
+export function parseOriginFromHosts(rawHosts?: string): string | undefined {
+  return parseOriginsFromHosts(rawHosts)[0];
+}
+
 const booleanFlag = (defaultValue: 'true' | 'false') =>
   z.enum(['true', 'false']).default(defaultValue).transform((v) => v === 'true');
 
@@ -79,8 +97,9 @@ const envSchema = z
     API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     WEB_ORIGIN: z
       .string()
-      .default('http://localhost:3000')
+      .optional()
       .transform((value, ctx) => {
+        if (value === undefined) return undefined;
         const origin = parseExactOriginUrl(value);
         if (!origin) {
           ctx.addIssue({
@@ -192,7 +211,7 @@ const envSchema = z
           message: 'COOKIE_SECURE wajib bernilai true pada mode produksi.',
         });
       }
-      if (!data.WEB_ORIGIN.startsWith('https://')) {
+      if (data.WEB_ORIGIN && !data.WEB_ORIGIN.startsWith('https://')) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['WEB_ORIGIN'],
@@ -215,19 +234,22 @@ const envSchema = z
           message: 'PASSWORD_RESET_DEV_PREVIEW tidak boleh bernilai true pada mode produksi.',
         });
       }
-      if (!data.SMTP_HOST) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['SMTP_HOST'],
-          message: 'SMTP_HOST wajib dikonfigurasi pada mode produksi untuk fitur Lupa Kata Sandi.',
-        });
-      }
-      if (!data.SMTP_USER || !data.SMTP_PASS) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['SMTP_USER'],
-          message: 'SMTP_USER dan SMTP_PASS wajib dikonfigurasi pada mode produksi.',
-        });
+      const hasAnySmtp = Boolean(data.SMTP_HOST || data.SMTP_USER || data.SMTP_PASS);
+      if (hasAnySmtp) {
+        if (!data.SMTP_HOST) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['SMTP_HOST'],
+            message: 'SMTP_HOST wajib dikonfigurasi pada mode produksi untuk fitur Lupa Kata Sandi.',
+          });
+        }
+        if (!data.SMTP_USER || !data.SMTP_PASS) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['SMTP_USER'],
+            message: 'SMTP_USER dan SMTP_PASS wajib dikonfigurasi pada mode produksi.',
+          });
+        }
       }
     }
   });
@@ -235,7 +257,56 @@ const envSchema = z
 export type AppEnv = z.infer<typeof envSchema>;
 
 export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
-  const parsed = envSchema.safeParse(rawEnv);
+  const isProd = rawEnv.NODE_ENV === 'production';
+  const normalizedEnv: NodeJS.ProcessEnv = { ...rawEnv };
+
+  if (!normalizedEnv.COOKIE_SECURE?.trim()) {
+    normalizedEnv.COOKIE_SECURE = isProd ? 'true' : 'false';
+  }
+
+  if (!normalizedEnv.TRUST_PROXY?.trim()) {
+    normalizedEnv.TRUST_PROXY = normalizedEnv.K_SERVICE ? '1' : 'loopback';
+  }
+
+  const allowedHostOrigins = parseOriginsFromHosts(normalizedEnv.NG_ALLOWED_HOSTS);
+
+  if (!normalizedEnv.WEB_ORIGIN?.trim()) {
+    if (isProd) {
+      if (allowedHostOrigins[0]) {
+        normalizedEnv.WEB_ORIGIN = allowedHostOrigins[0];
+      } else {
+        delete normalizedEnv.WEB_ORIGIN;
+      }
+    } else {
+      normalizedEnv.WEB_ORIGIN = 'http://localhost:3000';
+    }
+  }
+
+  if (!normalizedEnv.CORS_ALLOWED_ORIGINS?.trim() && allowedHostOrigins.length > 0) {
+    normalizedEnv.CORS_ALLOWED_ORIGINS = allowedHostOrigins.join(',');
+  }
+
+  for (const key of [
+    'NODE_ENV',
+    'API_PORT',
+    'COOKIE_SAME_SITE',
+    'STUDENT_EMAIL_DOMAINS',
+    'SESSION_TTL_HOURS',
+    'PASSWORD_RESET_TTL_MINUTES',
+    'PASSWORD_RESET_WINDOW_MINUTES',
+    'PASSWORD_RESET_IP_LIMIT',
+    'PASSWORD_RESET_ACCOUNT_LIMIT',
+    'PASSWORD_RESET_DEV_PREVIEW',
+    'SMTP_PORT',
+    'SMTP_SECURE',
+    'SMTP_FROM',
+  ] as const) {
+    if (normalizedEnv[key] !== undefined && normalizedEnv[key]!.trim() === '') {
+      delete normalizedEnv[key];
+    }
+  }
+
+  const parsed = envSchema.safeParse(normalizedEnv);
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((issue) => `${issue.path.join('.') || 'env'}: ${issue.message}`)
@@ -246,7 +317,9 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
 }
 
 export function buildAllowedOrigins(cfg: Pick<AppEnv, 'WEB_ORIGIN' | 'CORS_ALLOWED_ORIGINS'>): Set<string> {
-  return new Set([cfg.WEB_ORIGIN, ...cfg.CORS_ALLOWED_ORIGINS]);
+  return new Set(
+    [cfg.WEB_ORIGIN, ...cfg.CORS_ALLOWED_ORIGINS].filter((origin): origin is string => Boolean(origin)),
+  );
 }
 
 export const env = parseEnv(process.env);

@@ -15,6 +15,12 @@ import {
   type Role,
 } from '../../../src/db/schema.js';
 import { authenticate, csrf, requireRole } from './auth.js';
+import {
+  attachmentSchema,
+  parseAttachment as parseSharedAttachment,
+  sendAttachmentBuffer,
+  validateSafeUrl as validateSharedSafeUrl,
+} from './lib/attachments.js';
 import { createClassNotifications } from './notifications-service.js';
 
 type Principal = { id: string; role: Role };
@@ -89,6 +95,37 @@ async function assertClassOwner(classId: string, user: Principal) {
   return owned[0];
 }
 
+const quizSummarySelect = {
+  id: quizzes.id,
+  classId: quizzes.classId,
+  title: quizzes.title,
+  description: quizzes.description,
+  externalUrl: quizzes.externalUrl,
+  attachmentName: quizzes.attachmentName,
+  attachmentMime: quizzes.attachmentMime,
+  attachmentSize: quizzes.attachmentSize,
+  timeLimitMinutes: quizzes.timeLimitMinutes,
+  maxAttempts: quizzes.maxAttempts,
+  opensAt: quizzes.opensAt,
+  closesAt: quizzes.closesAt,
+  status: quizzes.status,
+  createdAt: quizzes.createdAt,
+  updatedAt: quizzes.updatedAt,
+};
+
+const questionSummarySelect = {
+  id: questions.id,
+  quizId: questions.quizId,
+  type: questions.type,
+  prompt: questions.prompt,
+  externalUrl: questions.externalUrl,
+  attachmentName: questions.attachmentName,
+  attachmentMime: questions.attachmentMime,
+  attachmentSize: questions.attachmentSize,
+  points: questions.points,
+  position: questions.position,
+};
+
 const optionInputSchema = z.object({
   label: z.string().trim().min(1).max(1000),
   isCorrect: z.boolean(),
@@ -97,6 +134,8 @@ const optionInputSchema = z.object({
 const questionInputSchema = z.object({
   type: z.enum(['MULTIPLE_CHOICE', 'ESSAY']),
   prompt: z.string().trim().min(1).max(10_000),
+  externalUrl: z.string().trim().url().max(1000).nullable().optional(),
+  attachment: attachmentSchema.nullable().optional(),
   points: z.number().positive().max(100),
   position: z.number().int().min(0).max(1000).optional(),
   options: z.array(optionInputSchema).max(10).optional(),
@@ -105,6 +144,8 @@ const questionInputSchema = z.object({
 const createQuizSchema = z.object({
   title: z.string().trim().min(1).max(160),
   description: z.string().trim().max(5000).nullable().optional(),
+  externalUrl: z.string().trim().url().max(1000).nullable().optional(),
+  attachment: attachmentSchema.nullable().optional(),
   timeLimitMinutes: z.number().int().min(1).max(300).default(30),
   maxAttempts: z.number().int().min(1).max(3).default(1),
   opensAt: z.string().datetime({ offset: true }).nullable().optional(),
@@ -116,6 +157,8 @@ const createQuizSchema = z.object({
 const patchQuizSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
   description: z.string().trim().max(5000).nullable().optional(),
+  externalUrl: z.string().trim().url().max(1000).nullable().optional(),
+  attachment: attachmentSchema.nullable().optional(),
   timeLimitMinutes: z.number().int().min(1).max(300).optional(),
   maxAttempts: z.number().int().min(1).max(3).optional(),
   opensAt: z.string().datetime({ offset: true }).nullable().optional(),
@@ -162,7 +205,7 @@ function validateQuestionPayload(q: z.infer<typeof questionInputSchema>) {
 
 async function loadQuizQuestions(quizId: string, includeAnswerKey: boolean, txOrDb: TxClient | typeof db = db) {
   const questionRows = await txOrDb
-    .select()
+    .select(questionSummarySelect)
     .from(questions)
     .where(eq(questions.quizId, quizId))
     .orderBy(asc(questions.position), asc(questions.id));
@@ -188,6 +231,10 @@ async function loadQuizQuestions(quizId: string, includeAnswerKey: boolean, txOr
     quizId: q.quizId,
     type: q.type,
     prompt: q.prompt,
+    externalUrl: q.externalUrl,
+    attachmentName: q.attachmentName,
+    attachmentMime: q.attachmentMime,
+    attachmentSize: q.attachmentSize,
     points: q.points,
     position: q.position,
     options: (optionsByQuestion.get(q.id) ?? []).map((o) => ({
@@ -203,7 +250,7 @@ async function loadQuizQuestions(quizId: string, includeAnswerKey: boolean, txOr
 async function finalizeAttemptInTx(
   tx: TxClient,
   attemptId: string,
-  quizRecord: typeof quizzes.$inferSelect,
+  quizRecord: { id: string },
   submittedAt: Date,
 ) {
   const questionRows = await tx
@@ -304,7 +351,7 @@ classQuizzesRouter.get('/', async (req: QuizRequest, res, next) => {
       : and(eq(quizzes.classId, classId), sql`${quizzes.status} <> 'DRAFT'`);
 
     const list = await db
-      .select()
+      .select(quizSummarySelect)
       .from(quizzes)
       .where(condition)
       .orderBy(desc(quizzes.createdAt));
@@ -395,10 +442,18 @@ classQuizzesRouter.post('/', requireRole('DOSEN'), async (req: QuizRequest, res,
       throw fail(400, 'INVALID_DATES', 'Waktu buka kuis harus lebih awal daripada waktu tutup.');
     }
 
+    const safeQuizUrl = validateSharedSafeUrl(input.externalUrl, fail);
+    const parsedQuizFile = parseSharedAttachment(input.attachment, fail);
+
     const initialQuestions = input.questions ?? [];
-    for (const q of initialQuestions) {
+    const preparedQuestions = initialQuestions.map((q) => {
       validateQuestionPayload(q);
-    }
+      return {
+        raw: q,
+        safeUrl: validateSharedSafeUrl(q.externalUrl, fail),
+        parsedFile: parseSharedAttachment(q.attachment, fail),
+      };
+    });
     if (input.status === 'PUBLISHED' && initialQuestions.length === 0) {
       throw fail(400, 'EMPTY_QUIZ', 'Kuis harus memiliki minimal 1 pertanyaan sebelum dipublikasikan.');
     }
@@ -410,27 +465,37 @@ classQuizzesRouter.post('/', requireRole('DOSEN'), async (req: QuizRequest, res,
           classId,
           title: input.title,
           description: input.description?.trim() || null,
+          externalUrl: safeQuizUrl,
+          attachmentName: parsedQuizFile?.name ?? null,
+          attachmentMime: parsedQuizFile?.mime ?? null,
+          attachmentSize: parsedQuizFile?.size ?? null,
+          attachmentData: parsedQuizFile?.data ?? null,
           timeLimitMinutes: input.timeLimitMinutes,
           maxAttempts: input.maxAttempts,
           opensAt,
           closesAt,
           status: input.status,
         })
-        .returning();
+        .returning(quizSummarySelect);
       const quiz = insertedQuiz[0]!;
 
-      for (let i = 0; i < initialQuestions.length; i++) {
-        const q = initialQuestions[i]!;
+      for (let i = 0; i < preparedQuestions.length; i++) {
+        const { raw: q, safeUrl, parsedFile } = preparedQuestions[i]!;
         const insertedQ = await tx
           .insert(questions)
           .values({
             quizId: quiz.id,
             type: q.type,
             prompt: q.prompt,
+            externalUrl: safeUrl,
+            attachmentName: parsedFile?.name ?? null,
+            attachmentMime: parsedFile?.mime ?? null,
+            attachmentSize: parsedFile?.size ?? null,
+            attachmentData: parsedFile?.data ?? null,
             points: formatCents(toCents(q.points)),
             position: q.position ?? i,
           })
-          .returning();
+          .returning(questionSummarySelect);
         const createdQ = insertedQ[0]!;
         if (q.type === 'MULTIPLE_CHOICE' && q.options) {
           await tx.insert(questionOptions).values(
@@ -478,7 +543,7 @@ classQuizzesRouter.get('/:quizId', async (req: QuizRequest, res, next) => {
     await assertClassAccess(classId, user);
 
     const rows = await db
-      .select()
+      .select(quizSummarySelect)
       .from(quizzes)
       .where(and(eq(quizzes.id, quizId), eq(quizzes.classId, classId)))
       .limit(1);
@@ -534,10 +599,12 @@ classQuizzesRouter.patch('/:quizId', requireRole('DOSEN'), async (req: QuizReque
     const quizId = uuid.parse(req.params.quizId);
     const classRecord = await assertClassOwner(classId, user);
     const input = patchQuizSchema.parse(req.body);
+    const safeQuizUrl = input.externalUrl !== undefined ? validateSharedSafeUrl(input.externalUrl, fail) : undefined;
+    const parsedQuizFile = input.attachment !== undefined ? parseSharedAttachment(input.attachment, fail) : undefined;
 
     const updated = await db.transaction(async (tx) => {
       const existingRows = await tx
-        .select()
+        .select(quizSummarySelect)
         .from(quizzes)
         .where(and(eq(quizzes.id, quizId), eq(quizzes.classId, classId)))
         .limit(1);
@@ -570,6 +637,15 @@ classQuizzesRouter.patch('/:quizId', requireRole('DOSEN'), async (req: QuizReque
         .set({
           ...(input.title !== undefined ? { title: input.title } : {}),
           ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}),
+          ...(safeQuizUrl !== undefined ? { externalUrl: safeQuizUrl } : {}),
+          ...(parsedQuizFile !== undefined
+            ? {
+                attachmentName: parsedQuizFile?.name ?? null,
+                attachmentMime: parsedQuizFile?.mime ?? null,
+                attachmentSize: parsedQuizFile?.size ?? null,
+                attachmentData: parsedQuizFile?.data ?? null,
+              }
+            : {}),
           ...(input.timeLimitMinutes !== undefined ? { timeLimitMinutes: input.timeLimitMinutes } : {}),
           ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}),
           ...(input.opensAt !== undefined ? { opensAt } : {}),
@@ -578,7 +654,7 @@ classQuizzesRouter.patch('/:quizId', requireRole('DOSEN'), async (req: QuizReque
           updatedAt: new Date(),
         })
         .where(eq(quizzes.id, quizId))
-        .returning();
+        .returning(quizSummarySelect);
       const saved = rows[0]!;
 
       await tx.insert(auditEvents).values({
@@ -601,6 +677,45 @@ classQuizzesRouter.patch('/:quizId', requireRole('DOSEN'), async (req: QuizReque
     });
 
     return res.json({ quiz: updated });
+  } catch (error) {
+    handle(next, res, error);
+  }
+});
+
+classQuizzesRouter.get('/:quizId/download', async (req: QuizRequest, res, next) => {
+  try {
+    const user = actor(req);
+    const classId = uuid.parse(req.params.classId);
+    const quizId = uuid.parse(req.params.quizId);
+    await assertClassAccess(classId, user);
+
+    const rows = await db
+      .select({
+        status: quizzes.status,
+        attachmentName: quizzes.attachmentName,
+        attachmentMime: quizzes.attachmentMime,
+        attachmentData: quizzes.attachmentData,
+      })
+      .from(quizzes)
+      .where(and(eq(quizzes.id, quizId), eq(quizzes.classId, classId)))
+      .limit(1);
+    const quiz = rows[0];
+    if (!quiz || (user.role === 'MAHASISWA' && quiz.status === 'DRAFT')) {
+      throw fail(404, 'NOT_FOUND', 'Kuis tidak ditemukan.');
+    }
+    if (!quiz.attachmentData || !quiz.attachmentName) {
+      throw fail(404, 'NOT_FOUND', 'Kuis ini tidak memiliki berkas lampiran.');
+    }
+
+    return sendAttachmentBuffer(
+      res,
+      {
+        attachmentData: quiz.attachmentData,
+        attachmentName: quiz.attachmentName,
+        attachmentMime: quiz.attachmentMime,
+      },
+      req.query.inline === '1',
+    );
   } catch (error) {
     handle(next, res, error);
   }
@@ -641,10 +756,12 @@ classQuizzesRouter.post('/:quizId/questions', requireRole('DOSEN'), async (req: 
     await assertClassOwner(classId, user);
     const input = questionInputSchema.parse(req.body);
     validateQuestionPayload(input);
+    const safeUrl = validateSharedSafeUrl(input.externalUrl, fail);
+    const parsedFile = parseSharedAttachment(input.attachment, fail);
 
     const createdQuestion = await db.transaction(async (tx) => {
       const quizRows = await tx
-        .select()
+        .select({ id: quizzes.id })
         .from(quizzes)
         .where(and(eq(quizzes.id, quizId), eq(quizzes.classId, classId)))
         .limit(1);
@@ -663,10 +780,15 @@ classQuizzesRouter.post('/:quizId/questions', requireRole('DOSEN'), async (req: 
           quizId,
           type: input.type,
           prompt: input.prompt,
+          externalUrl: safeUrl,
+          attachmentName: parsedFile?.name ?? null,
+          attachmentMime: parsedFile?.mime ?? null,
+          attachmentSize: parsedFile?.size ?? null,
+          attachmentData: parsedFile?.data ?? null,
           points: formatCents(toCents(input.points)),
           position: nextPos,
         })
-        .returning();
+        .returning(questionSummarySelect);
       const q = inserted[0]!;
 
       let options: Array<typeof questionOptions.$inferSelect> = [];
@@ -695,6 +817,48 @@ classQuizzesRouter.post('/:quizId/questions', requireRole('DOSEN'), async (req: 
     });
 
     return res.status(201).json({ question: createdQuestion });
+  } catch (error) {
+    handle(next, res, error);
+  }
+});
+
+classQuizzesRouter.get('/:quizId/questions/:questionId/download', async (req: QuizRequest, res, next) => {
+  try {
+    const user = actor(req);
+    const classId = uuid.parse(req.params.classId);
+    const quizId = uuid.parse(req.params.quizId);
+    const questionId = uuid.parse(req.params.questionId);
+    await assertClassAccess(classId, user);
+
+    const rows = await db
+      .select({
+        quizStatus: quizzes.status,
+        attachmentName: questions.attachmentName,
+        attachmentMime: questions.attachmentMime,
+        attachmentData: questions.attachmentData,
+      })
+      .from(questions)
+      .innerJoin(quizzes, eq(questions.quizId, quizzes.id))
+      .where(and(eq(questions.id, questionId), eq(questions.quizId, quizId), eq(quizzes.classId, classId)))
+      .limit(1);
+
+    const found = rows[0];
+    if (!found || (user.role === 'MAHASISWA' && found.quizStatus === 'DRAFT')) {
+      throw fail(404, 'NOT_FOUND', 'Pertanyaan kuis tidak ditemukan.');
+    }
+    if (!found.attachmentData || !found.attachmentName) {
+      throw fail(404, 'NOT_FOUND', 'Pertanyaan ini tidak memiliki berkas lampiran.');
+    }
+
+    return sendAttachmentBuffer(
+      res,
+      {
+        attachmentData: found.attachmentData,
+        attachmentName: found.attachmentName,
+        attachmentMime: found.attachmentMime,
+      },
+      req.query.inline === '1',
+    );
   } catch (error) {
     handle(next, res, error);
   }
@@ -740,7 +904,7 @@ classQuizzesRouter.get('/:quizId/attempts', requireRole('DOSEN'), async (req: Qu
     await assertClassOwner(classId, user);
 
     const quizRows = await db
-      .select()
+      .select(quizSummarySelect)
       .from(quizzes)
       .where(and(eq(quizzes.id, quizId), eq(quizzes.classId, classId)))
       .limit(1);
@@ -787,7 +951,7 @@ classQuizzesRouter.post('/:quizId/attempts', requireRole('MAHASISWA'), async (re
     const result = await db.transaction(async (tx) => {
       await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`);
       const quizRows = await tx
-        .select()
+        .select(quizSummarySelect)
         .from(quizzes)
         .where(and(eq(quizzes.id, quizId), eq(quizzes.classId, classId)))
         .limit(1);
@@ -898,7 +1062,8 @@ quizAttemptRouter.get('/attempts/:attemptId', async (req: QuizRequest, res, next
       const rows = await tx
         .select({
           attempt: quizAttempts,
-          quiz: quizzes,
+          quiz: quizSummarySelect,
+          quizFull: quizzes,
           classRecord: classes,
           studentName: users.fullName,
           studentEmail: users.email,
@@ -925,7 +1090,7 @@ quizAttemptRouter.get('/attempts/:attemptId', async (req: QuizRequest, res, next
       const expiresAt = new Date(attempt.startedAt.getTime() + found.quiz.timeLimitMinutes * 60_000);
       const now = new Date();
       if (attempt.status === 'IN_PROGRESS' && now > expiresAt) {
-        attempt = await finalizeAttemptInTx(tx, attempt.id, found.quiz, expiresAt);
+        attempt = await finalizeAttemptInTx(tx, attempt.id, found.quizFull, expiresAt);
       }
 
       // Answer key security: NEVER expose isCorrect to MAHASISWA

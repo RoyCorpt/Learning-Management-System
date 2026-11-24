@@ -1,1 +1,1 @@
-{"extends":"./tsconfig.json","include":["src"]}
+{"extends":"./tsconfig.json","compilerOptions":{"types":["vite/client","vite-plugin-pwa/client"]},"include":["src"]}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { request, type ClassSummary, type Role } from '../lib/api.ts';
+import { MathText } from './MathText.tsx';
 
 type GradesSectionProps = {
   classItem: ClassSummary;
@@ -136,13 +137,17 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                     {recap.assignments.map((a) => (
                       <th key={a.id} scope="col">
                         <span className="gradebook-col-type">Tugas</span>
-                        <span>{a.title}</span>
+                        <span>
+                          <MathText text={a.title} />
+                        </span>
                       </th>
                     ))}
                     {recap.quizzes.map((q) => (
                       <th key={q.id} scope="col">
                         <span className="gradebook-col-type">Kuis</span>
-                        <span>{q.title}</span>
+                        <span>
+                          <MathText text={q.title} />
+                        </span>
                       </th>
                     ))}
                     <th scope="col">Rata-rata</th>
@@ -258,7 +263,9 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
               <article key={item.assignmentId} className="workspace-receipt">
                 <div className="workspace-item-header">
                   <div>
-                    <h6>{item.assignmentTitle}</h6>
+                    <h6>
+                      <MathText text={item.assignmentTitle} />
+                    </h6>
                     <div className="workspace-badges">
                       <span className="stamp-seal">Nilai: {item.score ?? '0.00'}</span>
                       <span className="workspace-badge neutral receipt-version">
@@ -277,7 +284,7 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                 </div>
                 {item.feedback ? (
                   <p className="workspace-body-text">
-                    <strong>Umpan Balik Dosen:</strong> {item.feedback}
+                    <strong>Umpan Balik Dosen:</strong> <MathText text={item.feedback} />
                   </p>
                 ) : (
                   <p className="workspace-muted">Tidak ada catatan umpan balik tambahan.</p>
@@ -301,7 +308,7 @@ export function GradesSection({ classItem, role, onStatusMessage }: GradesSectio
                 <div className="workspace-item-header">
                   <div>
                     <h6>
-                      {q.quizTitle} (Percobaan ke-{q.attemptNumber})
+                      <MathText text={q.quizTitle} /> (Percobaan ke-{q.attemptNumber})
                     </h6>
                     <div className="workspace-badges">
                       <span

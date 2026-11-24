@@ -14,7 +14,7 @@ import {
   type AccountStatus,
   type Role,
 } from '../../../src/db/schema.js';
-import { env, type AppEnv } from './config/env.js';
+import { env, parseExactOriginUrl, type AppEnv } from './config/env.js';
 import {
   buildPasswordResetUrl,
   isPasswordResetEmailDeliveryConfigured,
@@ -354,11 +354,16 @@ router.post('/forgot-password', async (req, res, next) => {
     });
 
     try {
+      const originHost = req.get('host');
+      const cloudRunFallbackOrigin =
+        !runtimeEnv.WEB_ORIGIN && process.env.K_SERVICE && originHost
+          ? (parseExactOriginUrl(`https://${originHost}`) ?? undefined)
+          : undefined;
       await sendPasswordResetEmail(
         {
           to: user.email,
           fullName: user.fullName,
-          resetUrl: buildPasswordResetUrl(rawToken, runtimeEnv.WEB_ORIGIN),
+          resetUrl: buildPasswordResetUrl(rawToken, runtimeEnv.WEB_ORIGIN ?? cloudRunFallbackOrigin),
           expiresInMinutes: runtimeEnv.PASSWORD_RESET_TTL_MINUTES,
         },
         runtimeEnv,

@@ -24,6 +24,9 @@ export function setPasswordResetMailHook(hook: PasswordResetMailHook | null) {
 }
 
 export function buildPasswordResetUrl(rawToken: string, baseOrigin = env.WEB_ORIGIN) {
+  if (!baseOrigin) {
+    throw new MailDeliveryError('WEB_ORIGIN belum dikonfigurasi untuk tautan atur ulang kata sandi.');
+  }
   const baseUrl = baseOrigin.replace(/\/+$/, '');
   return `${baseUrl}/#resetToken=${encodeURIComponent(rawToken)}`;
 }

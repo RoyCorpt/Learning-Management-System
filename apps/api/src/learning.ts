@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
@@ -17,22 +16,19 @@ import {
   type Role,
 } from '../../../src/db/schema.js';
 import { csrf, requireRole } from './auth.js';
+import {
+  attachmentSchema,
+  MAX_ATTACHMENT_BYTES,
+  parseAttachment as parseSharedAttachment,
+  sendAttachmentBuffer,
+  validateSafeUrl as validateSharedSafeUrl,
+} from './lib/attachments.js';
 import { createClassNotifications } from './notifications-service.js';
+
+export { MAX_ATTACHMENT_BYTES };
 
 type Principal = { id: string; role: Role };
 type LearningRequest = Request & { auth?: Principal };
-
-export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  'application/pdf',
-  'text/plain',
-  'text/markdown',
-  'text/csv',
-  'image/png',
-  'image/jpeg',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/zip',
-]);
 
 const router = Router({ mergeParams: true });
 router.use((req, res, next) => {
@@ -58,12 +54,6 @@ function toCents(value: string | number | null | undefined): number | null {
   if (!Number.isFinite(num)) return null;
   return Math.round(num * 100);
 }
-
-const attachmentSchema = z.object({
-  name: z.string().trim().min(1).max(255),
-  mimeType: z.string().trim().min(1).max(120),
-  dataBase64: z.string().min(1).max(6_000_000),
-}).strict();
 
 const createTopicSchema = z.object({
   title: z.string().trim().min(1).max(150),
@@ -99,6 +89,8 @@ const patchMaterialSchema = z.object({
 const createAssignmentSchema = z.object({
   title: z.string().trim().min(1).max(160),
   instructions: z.string().trim().min(1).max(20_000),
+  externalUrl: z.string().trim().url().max(1000).nullable().optional(),
+  attachment: attachmentSchema.nullable().optional(),
   dueAt: z.string().datetime({ offset: true }).nullable().optional(),
   allowLate: z.boolean().optional(),
 }).strict();
@@ -106,6 +98,8 @@ const createAssignmentSchema = z.object({
 const patchAssignmentSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
   instructions: z.string().trim().min(1).max(20_000).optional(),
+  externalUrl: z.string().trim().url().max(1000).nullable().optional(),
+  attachment: attachmentSchema.nullable().optional(),
   dueAt: z.string().datetime({ offset: true }).nullable().optional(),
   status: z.enum(['OPEN', 'CLOSED']).optional(),
   allowLate: z.boolean().optional(),
@@ -140,37 +134,28 @@ function actor(req: LearningRequest): Principal {
 }
 
 function validateSafeUrl(rawUrl: string | null | undefined): string | null {
-  if (!rawUrl) return null;
-  const parsed = new URL(rawUrl);
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw fail(400, 'INVALID_URL', 'Tautan materi harus menggunakan protokol http atau https.');
-  }
-  return parsed.toString();
+  return validateSharedSafeUrl(rawUrl, fail);
 }
 
 function parseAttachment(att: z.infer<typeof attachmentSchema> | null | undefined) {
-  if (!att) return null;
-  const normalizedMime = att.mimeType.toLowerCase().split(';')[0]!.trim();
-  const safeName = path.basename(att.name).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 255) || 'lampiran';
-  const effectiveMime = normalizedMime === '' && safeName.endsWith('.md') ? 'text/markdown' : normalizedMime;
-  if (!ALLOWED_MIME_TYPES.has(effectiveMime)) {
-    throw fail(400, 'UNSUPPORTED_FILE_TYPE', 'Jenis berkas tidak didukung. Gunakan PDF, TXT, MD, CSV, PNG, JPG, DOCX, atau ZIP.');
-  }
-  const cleanBase64 = att.dataBase64.replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
-  const decoded = Buffer.from(cleanBase64, 'base64');
-  if (decoded.byteLength === 0) {
-    throw fail(400, 'EMPTY_FILE', 'Berkas tidak boleh kosong.');
-  }
-  if (decoded.byteLength > MAX_ATTACHMENT_BYTES) {
-    throw fail(400, 'FILE_TOO_LARGE', 'Ukuran berkas melebihi batas maksimal 4 MB.');
-  }
-  return {
-    name: safeName,
-    mime: effectiveMime,
-    size: decoded.byteLength,
-    data: decoded.toString('base64'),
-  };
+  return parseSharedAttachment(att, fail);
 }
+
+const assignmentSummarySelect = {
+  id: assignments.id,
+  classId: assignments.classId,
+  title: assignments.title,
+  instructions: assignments.instructions,
+  externalUrl: assignments.externalUrl,
+  attachmentName: assignments.attachmentName,
+  attachmentMime: assignments.attachmentMime,
+  attachmentSize: assignments.attachmentSize,
+  dueAt: assignments.dueAt,
+  status: assignments.status,
+  allowLate: assignments.allowLate,
+  createdAt: assignments.createdAt,
+  updatedAt: assignments.updatedAt,
+};
 
 async function assertClassAccess(classId: string, user: Principal) {
   if (user.role === 'ADMIN') throw fail(403, 'FORBIDDEN', 'Akses tidak diizinkan.');
@@ -538,7 +523,12 @@ router.get('/materials/:materialId/download', async (req: LearningRequest, res, 
     await assertClassAccess(classId, user);
 
     const rows = await db
-      .select()
+      .select({
+        isPublished: materials.isPublished,
+        attachmentData: materials.attachmentData,
+        attachmentName: materials.attachmentName,
+        attachmentMime: materials.attachmentMime,
+      })
       .from(materials)
       .where(and(eq(materials.id, materialId), eq(materials.classId, classId)))
       .limit(1);
@@ -550,12 +540,15 @@ router.get('/materials/:materialId/download', async (req: LearningRequest, res, 
       throw fail(404, 'NOT_FOUND', 'Materi ini tidak memiliki berkas lampiran.');
     }
 
-    const buffer = Buffer.from(material.attachmentData, 'base64');
-    res.setHeader('Content-Type', material.attachmentMime || 'application/octet-stream');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Disposition', `attachment; filename="${material.attachmentName}"`);
-    res.setHeader('Cache-Control', 'private, no-store');
-    return res.send(buffer);
+    return sendAttachmentBuffer(
+      res,
+      {
+        attachmentData: material.attachmentData,
+        attachmentName: material.attachmentName,
+        attachmentMime: material.attachmentMime,
+      },
+      req.query.inline === '1',
+    );
   } catch (error) {
     handle(next, res, error);
   }
@@ -570,7 +563,7 @@ router.get('/assignments', async (req: LearningRequest, res, next) => {
     await assertClassAccess(classId, user);
 
     const list = await db
-      .select()
+      .select(assignmentSummarySelect)
       .from(assignments)
       .where(eq(assignments.classId, classId))
       .orderBy(desc(assignments.createdAt));
@@ -664,6 +657,8 @@ router.post('/assignments', requireRole('DOSEN'), async (req: LearningRequest, r
     const classRecord = await assertClassOwner(classId, user);
     const input = createAssignmentSchema.parse(req.body);
     const dueAt = input.dueAt ? new Date(input.dueAt) : null;
+    const safeUrl = validateSafeUrl(input.externalUrl);
+    const parsedFile = parseAttachment(input.attachment);
 
     const created = await db.transaction(async (tx) => {
       const inserted = await tx
@@ -672,16 +667,21 @@ router.post('/assignments', requireRole('DOSEN'), async (req: LearningRequest, r
           classId,
           title: input.title,
           instructions: input.instructions,
+          externalUrl: safeUrl,
+          attachmentName: parsedFile?.name ?? null,
+          attachmentMime: parsedFile?.mime ?? null,
+          attachmentSize: parsedFile?.size ?? null,
+          attachmentData: parsedFile?.data ?? null,
           dueAt,
           allowLate: input.allowLate ?? false,
         })
-        .returning();
+        .returning(assignmentSummarySelect);
       const record = inserted[0]!;
       await tx.insert(auditEvents).values({
         action: 'ASSIGNMENT_CREATED',
         actorId: user.id,
         subjectId: record.id,
-        details: { classId },
+        details: { classId, hasAttachment: Boolean(parsedFile), hasExternalUrl: Boolean(safeUrl) },
       });
       await createClassNotifications(tx, classId, {
         type: 'ASSIGNMENT_NEW',
@@ -707,6 +707,8 @@ router.patch('/assignments/:assignmentId', requireRole('DOSEN'), async (req: Lea
     const assignmentId = uuid.parse(req.params.assignmentId);
     await assertClassOwner(classId, user);
     const input = patchAssignmentSchema.parse(req.body);
+    const safeUrl = input.externalUrl !== undefined ? validateSafeUrl(input.externalUrl) : undefined;
+    const parsedFile = input.attachment !== undefined ? parseAttachment(input.attachment) : undefined;
 
     const updated = await db.transaction(async (tx) => {
       const rows = await tx
@@ -714,13 +716,22 @@ router.patch('/assignments/:assignmentId', requireRole('DOSEN'), async (req: Lea
         .set({
           ...(input.title !== undefined ? { title: input.title } : {}),
           ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
+          ...(safeUrl !== undefined ? { externalUrl: safeUrl } : {}),
+          ...(parsedFile !== undefined
+            ? {
+                attachmentName: parsedFile?.name ?? null,
+                attachmentMime: parsedFile?.mime ?? null,
+                attachmentSize: parsedFile?.size ?? null,
+                attachmentData: parsedFile?.data ?? null,
+              }
+            : {}),
           ...(input.dueAt !== undefined ? { dueAt: input.dueAt ? new Date(input.dueAt) : null } : {}),
           ...(input.status !== undefined ? { status: input.status } : {}),
           ...(input.allowLate !== undefined ? { allowLate: input.allowLate } : {}),
           updatedAt: new Date(),
         })
         .where(and(eq(assignments.id, assignmentId), eq(assignments.classId, classId)))
-        .returning();
+        .returning(assignmentSummarySelect);
       if (!rows[0]) throw fail(404, 'NOT_FOUND', 'Tugas tidak ditemukan.');
       await tx.insert(auditEvents).values({
         action: 'ASSIGNMENT_UPDATED',
@@ -737,6 +748,42 @@ router.patch('/assignments/:assignmentId', requireRole('DOSEN'), async (req: Lea
   }
 });
 
+router.get('/assignments/:assignmentId/download', async (req: LearningRequest, res, next) => {
+  try {
+    const user = actor(req);
+    const classId = uuid.parse(req.params.classId);
+    const assignmentId = uuid.parse(req.params.assignmentId);
+    await assertClassAccess(classId, user);
+
+    const rows = await db
+      .select({
+        attachmentName: assignments.attachmentName,
+        attachmentMime: assignments.attachmentMime,
+        attachmentData: assignments.attachmentData,
+      })
+      .from(assignments)
+      .where(and(eq(assignments.id, assignmentId), eq(assignments.classId, classId)))
+      .limit(1);
+    const assignment = rows[0];
+    if (!assignment) throw fail(404, 'NOT_FOUND', 'Tugas tidak ditemukan.');
+    if (!assignment.attachmentData || !assignment.attachmentName) {
+      throw fail(404, 'NOT_FOUND', 'Tugas ini tidak memiliki berkas lampiran.');
+    }
+
+    return sendAttachmentBuffer(
+      res,
+      {
+        attachmentData: assignment.attachmentData,
+        attachmentName: assignment.attachmentName,
+        attachmentMime: assignment.attachmentMime,
+      },
+      req.query.inline === '1',
+    );
+  } catch (error) {
+    handle(next, res, error);
+  }
+});
+
 router.get('/assignments/:assignmentId/submissions', requireRole('DOSEN'), async (req: LearningRequest, res, next) => {
   try {
     const user = actor(req);
@@ -745,7 +792,7 @@ router.get('/assignments/:assignmentId/submissions', requireRole('DOSEN'), async
     await assertClassOwner(classId, user);
 
     const assignmentRows = await db
-      .select()
+      .select(assignmentSummarySelect)
       .from(assignments)
       .where(and(eq(assignments.id, assignmentId), eq(assignments.classId, classId)))
       .limit(1);
@@ -941,12 +988,15 @@ router.get('/assignments/:assignmentId/submissions/:submissionId/download', asyn
       throw fail(404, 'NOT_FOUND', 'Pengumpulan ini tidak memiliki berkas lampiran.');
     }
 
-    const buffer = Buffer.from(submission.attachmentData, 'base64');
-    res.setHeader('Content-Type', submission.attachmentMime || 'application/octet-stream');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Disposition', `attachment; filename="${submission.attachmentName}"`);
-    res.setHeader('Cache-Control', 'private, no-store');
-    return res.send(buffer);
+    return sendAttachmentBuffer(
+      res,
+      {
+        attachmentData: submission.attachmentData,
+        attachmentName: submission.attachmentName,
+        attachmentMime: submission.attachmentMime,
+      },
+      req.query.inline === '1',
+    );
   } catch (error) {
     handle(next, res, error);
   }

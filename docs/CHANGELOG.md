@@ -2,6 +2,21 @@
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
+## 2026-11-23 — Service Worker luring, unggahan berkas/gambar/tautan Tugas & Kuis, serta dukungan rumus LaTeX (`SINTAKS`)
+
+- **Service Worker & Caching Aset Statis (`apps/web/src/sw.ts`, `apps/web/src/lib/pwa.ts`, `apps/web/vite.config.ts`, `apps/web/src/main.tsx`, `apps/web/index.html`, `public/pwa-*.png`, `apps/api/src/app.ts`):**
+  - Mengimplementasikan Service Worker Workbox `injectManifest` (`sw.js`) dengan manifes PWA (`manifest.webmanifest`) dan ikon PNG resmi SINTAKS (`192x192`, `512x512`, `maskable`, `apple-touch-icon`).
+  - Melakukan precache bundel JS/CSS, font KaTeX `.woff2`, logo/latar `/assets/*`, dan navigasi *App Shell* luring, sambil memaksa `NetworkOnly` pada `/api/*`, `/auth/*`, `/health`, `/ready`, serta URL `?resetToken` agar sesi autentikasi dan data API tetap aman.
+  - Menambahkan banner status luring (`Mode Luring`), banner pembaruan aplikasi (`Muat Ulang`), dan tombol `Pasang Aplikasi` pada header saat prompt instalasi tersedia.
+- **Unggahan Berkas, Pratinjau Gambar & Tautan pada Tugas dan Sesi Kuis (`src/db/schema.ts`, `drizzle/0001_regular_gauntlet.sql`, `apps/api/src/lib/attachments.ts`, `apps/api/src/learning.ts`, `apps/api/src/quizzes.ts`, `apps/web/src/components/AttachmentViewer.tsx`, `apps/web/src/App.tsx`, `apps/web/src/components/QuizzesSection.tsx`):**
+  - Menambahkan kolom opsional `external_url`, `attachment_name`, `attachment_mime`, `attachment_size`, dan `attachment_data` pada tabel `assignments`, `quizzes`, dan `questions`, serta dukungan `image/webp` dan helper validasi/pengiriman `lib/attachments.ts` (batas 4 MB, validasi `http:`/`https:`, header `X-Content-Type-Options: nosniff` dan `Cache-Control: private, no-store`).
+  - Menambahkan endpoint unduhan terautentikasi `GET /api/classes/:classId/assignments/:assignmentId/download`, `GET /api/classes/:classId/quizzes/:quizId/download`, dan `GET /api/classes/:classId/quizzes/:quizId/questions/:questionId/download` dengan opsi `?inline=1` aman (hanya gambar PNG/JPG/WEBP yang dapat disajikan `inline`; kuis `DRAFT` tersembunyi dari mahasiswa).
+  - Menambahkan komponen `<AttachmentViewer />` untuk pratinjau gambar langsung beserta modal pembesaran, tautan eksternal `rel="noopener noreferrer"`, dan tombol unduh di Tugas, Materi, Pengumpulan, Kuis, serta Pengerjaan/Penilaian Kuis.
+- **Dukungan Rumus LaTeX / KaTeX Luring (`apps/web/src/lib/math.ts`, `apps/web/src/components/MathText.tsx`, `App.tsx`, `QuizzesSection.tsx`, `DashboardAndProfile.tsx`, `CommunicationSection.tsx`, `GradesSection.tsx`, `ExpandableAnswerText.tsx`, `apps/web/src/workspace.css`):**
+  - Mengintegrasikan `katex` lokal (bekerja penuh secara luring) untuk merender notasi `$...$`, `$$...$$`, `\(...\)`, dan `\[...\]` (sambil mengabaikan `\$` dan nominal mata uang) di seluruh dasbor Mahasiswa/Dosen, notifikasi, materi, tugas, pengumpulan, kuis, soal pilihan ganda/esai, rekap nilai, pengumuman, forum, dan pop-up jawaban lengkap.
+  - Menambahkan bilah sisip rumus cepat `<MathSnippetBar />` dan pratinjau langsung `<MathPreviewBox />` pada formulir Dosen dan Mahasiswa.
+- **Uji Regresi (`apps/api/src/assignments-quizzes-media.test.ts`):** Menambahkan uji unit parser matematika LaTeX dan uji integrasi untuk unggahan berkas/gambar/tautan Tugas & Kuis, proteksi `DRAFT`, validasi URL/MIME, serta header `?inline=1`.
+
 ## 2026-11-22 — Penguatan kesiapan produksi, keamanan CORS/cookie/SMTP/token reset, sinkronisasi `package-lock.json`, rate limit PostgreSQL & paginasi Admin (`SINTAKS`)
 
 - **CORS, Cookie Produksi, dan Validasi Proxy (`apps/api/src/config/env.ts`, `apps/api/src/app.ts`, `apps/api/src/auth.ts`, `.env.example`):**

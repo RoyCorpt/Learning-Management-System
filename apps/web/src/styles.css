@@ -203,6 +203,37 @@ time,
   box-shadow: none;
 }
 
+.pwa-install-btn {
+  min-height: 40px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.offline-banner,
+.sw-update-banner {
+  width: 100%;
+  padding: var(--space-xs) var(--gutter);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.offline-banner {
+  background: var(--color-badge-late-bg);
+  color: var(--color-badge-late-ink);
+}
+
+.sw-update-banner {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+
 /* ---------- MAIN CONTENT CONTAINER ---------- */
 .page-main {
   position: relative;

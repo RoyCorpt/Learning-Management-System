@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type express from 'express';
 import { env } from './config/env.js';
 import { createApp, type DevFrontend } from './app.js';
+import { isPasswordResetEmailDeliveryConfigured } from './lib/mailer.js';
 import { pool } from '../../../src/db/index.js';
 
 type ViteServerLike = DevFrontend & {
@@ -87,6 +88,24 @@ async function createDevViteServer(): Promise<ViteServerLike | undefined> {
   };
 }
 
+function parseValidPort(raw: string | undefined, fallback: number): number {
+  const trimmed = raw?.trim();
+  if (!trimmed) return fallback;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
+}
+
+function listenAsync(app: express.Express, port: number): Promise<import('node:http').Server> {
+  return new Promise((resolve, reject) => {
+    const srv = app.listen(port, '0.0.0.0', () => {
+      resolve(srv);
+    });
+    srv.once('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
 async function start() {
   let viteServer: ViteServerLike | undefined;
   try {
@@ -113,28 +132,82 @@ async function start() {
     process.exit(1);
   }
 
+  if (env.NODE_ENV === 'production' && !isPasswordResetEmailDeliveryConfigured(env)) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'password_reset_smtp_unconfigured',
+        message: 'SMTP belum dikonfigurasi; endpoint Lupa Kata Sandi mengembalikan 503 hingga SMTP_* diisi.',
+      }),
+    );
+  }
+
   const app = createApp(viteServer);
-  const port = Number(process.env.PORT ?? env.API_PORT ?? 3000);
-  const server = app.listen(port, '0.0.0.0', () => {
+  const defaultAppPort = parseValidPort(process.env.DEFAULT_APP_PORT, env.API_PORT || 3000);
+  const primaryPort = parseValidPort(process.env.PORT, defaultAppPort);
+  const servers: import('node:http').Server[] = [];
+
+  try {
+    const primaryServer = await listenAsync(app, primaryPort);
+    servers.push(primaryServer);
     console.info(JSON.stringify({
       level: 'info',
       event: 'server_started',
-      port,
+      port: primaryPort,
       host: '0.0.0.0',
       environment: env.NODE_ENV,
       viteMiddleware: Boolean(viteServer),
     }));
-  });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'EADDRINUSE' && primaryPort !== defaultAppPort) {
+      const fallbackServer = await listenAsync(app, defaultAppPort);
+      servers.push(fallbackServer);
+      console.info(JSON.stringify({
+        level: 'info',
+        event: 'server_started',
+        port: defaultAppPort,
+        host: '0.0.0.0',
+        environment: env.NODE_ENV,
+        viteMiddleware: Boolean(viteServer),
+        fallbackFromPort: primaryPort,
+      }));
+    } else {
+      throw error;
+    }
+  }
 
-  server.on('error', (error: NodeJS.ErrnoException) => {
-    console.error(JSON.stringify({
-      level: 'error',
-      event: 'server_error',
-      code: error.code,
-      message: error.message,
-    }));
-    process.exit(1);
-  });
+  // In production, if Cloud Run injects PORT (e.g. 8080) while health probes target 3000 (or vice versa),
+  // also bind the fallback app port when available so probes succeed regardless of probe port config.
+  if (env.NODE_ENV === 'production' && !servers.some((s) => {
+    const addr = s.address();
+    return addr && typeof addr !== 'string' && addr.port === defaultAppPort;
+  })) {
+    try {
+      const auxServer = await listenAsync(app, defaultAppPort);
+      servers.push(auxServer);
+      console.info(JSON.stringify({
+        level: 'info',
+        event: 'server_aux_port_started',
+        port: defaultAppPort,
+        host: '0.0.0.0',
+      }));
+    } catch {
+      // Ignore if secondary port is unavailable
+    }
+  }
+
+  for (const srv of servers) {
+    srv.on('error', (error: NodeJS.ErrnoException) => {
+      console.error(JSON.stringify({
+        level: 'error',
+        event: 'server_error',
+        code: error.code,
+        message: error.message,
+      }));
+      process.exit(1);
+    });
+  }
 
   let shuttingDown = false;
   async function shutdown(signal: string) {
@@ -143,10 +216,14 @@ async function start() {
     console.info(JSON.stringify({ level: 'info', event: 'server_shutdown', signal }));
     setTimeout(() => process.exit(1), 5_000).unref();
     try {
-      server.closeAllConnections?.();
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
+      await Promise.all(
+        servers.map((srv) => {
+          srv.closeAllConnections?.();
+          return new Promise<void>((resolve) => {
+            srv.close(() => resolve());
+          });
+        }),
+      );
       if (viteServer) {
         await viteServer.close().catch(() => undefined);
       }
@@ -161,5 +238,14 @@ async function start() {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
-void start();
+void start().catch((error) => {
+  const err = error as NodeJS.ErrnoException;
+  console.error(JSON.stringify({
+    level: 'error',
+    event: 'server_error',
+    code: err?.code,
+    message: err instanceof Error ? err.message : String(error),
+  }));
+  process.exit(1);
+});
 

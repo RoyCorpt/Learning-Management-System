@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { MathText } from './MathText.tsx';
 
 export const DEFAULT_ANSWER_PREVIEW_WORDS = 30;
 
@@ -96,7 +97,7 @@ export function ExpandableAnswerText({
             <strong>{prefixLabel}</strong>{' '}
           </>
         ) : null}
-        {text}
+        <MathText text={text} />
       </p>
     );
   }
@@ -181,7 +182,9 @@ export function ExpandableAnswerText({
                 </button>
               </div>
               <div className="answer-modal-body">
-                <p className="answer-modal-text">{text}</p>
+                <p className="answer-modal-text">
+                  <MathText text={text} />
+                </p>
               </div>
             </div>
           </div>,
