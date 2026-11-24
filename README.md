@@ -68,6 +68,8 @@ npm run db:bootstrap-admin -w @lms/api
 - **UI/UX SINTAKS:** Rebrand penuh ke **SINTAKS**, logo resmi sebagai favicon & ikon navigasi, desain editorial terang (`#FFFFFF` / `#FAFBF9` / `#1F4D3A`), animasi hover/transisi ringan ramah `prefers-reduced-motion`, dan tombol bebas ikon panah.
 
 ## Dokumentasi terkait
+- [`docs/CHANGE-REQUESTS.md`](docs/CHANGE-REQUESTS.md) — daftar terpadu Change Request (`CR-01`–`CR-10`), pemetaan `OD-01`–`OD-10`, dan spesifikasi GitHub Issue `CR-09` & `CR-10`
+- [`docs/OPEN-DECISIONS.md`](docs/OPEN-DECISIONS.md) — register Open Decisions (`OD-01`–`OD-10`)
 - [`docs/SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md`](docs/SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md) — dokumentasi lengkap Sprint 3 dan Sprint 4 dari perencanaan hingga pelaksanaan
 - [`docs/USE-CASE-STATUS-AND-ROADMAP.md`](docs/USE-CASE-STATUS-AND-ROADMAP.md) — pemetaan status 18 use case (`UC-01`–`UC-18`)
 - [`docs/DATABASE-SCHEMA.md`](docs/DATABASE-SCHEMA.md) — ringkasan tabel dan enum PostgreSQL (Drizzle ORM)

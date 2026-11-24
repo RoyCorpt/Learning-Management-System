@@ -16,8 +16,8 @@ Setelah Sprint 1 (Identitas, Autentikasi & Roster) dan Sprint 2 (Kelas & Keanggo
 2. **Migrasi ke Drizzle ORM (`src/db/`):** Skema dan kueri database dipusatkan di `src/db/schema.ts`, `src/db/index.ts`, dan `src/db/drizzle.config.ts` dengan penamaan kolom `snake_case`.
 3. **Autentikasi Ganda:** Mempertahankan login email/kata sandi berbasis Argon2id + sesi opaque di PostgreSQL + CSRF cookie, serta menambahkan masuk dengan Google melalui Firebase Authentication (`POST /auth/firebase` dan `users.uid`).
 4. **Rekonsiliasi Keputusan Terbuka:**
-   - **Batas unggahan berkas (`CR-07`):** Ditetapkan **4 MB per berkas** (`PDF, JPG, PNG, TXT, MD, CSV, DOCX, ZIP`).
-   - **Pengumpulan tugas (`CR-05` / `FR-40`) & Notifikasi (`CR-04` / `FR-38`):** Dijadwalkan masuk ke Sprint 3 dan Sprint 4.
+   - **Batas unggahan berkas (`OD-07`, terkait `CR-10`):** Ditetapkan **4 MB per berkas** (`PDF, JPG, PNG, TXT, MD, CSV, DOCX, ZIP`).
+   - **Pengumpulan tugas (`OD-05` / `FR-40`) & Notifikasi (`OD-04` / `FR-38`):** Dijadwalkan masuk ke Sprint 3 dan Sprint 4.
 
 ---
 

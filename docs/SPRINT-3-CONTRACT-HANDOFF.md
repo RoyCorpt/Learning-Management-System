@@ -16,7 +16,7 @@ Kandidat berikut bukan prioritas atau komitmen. Tim dapat memilih satu irisan ke
 | Kandidat | Dependensi / pertanyaan kontrak |
 |---|---|
 | Materi pembelajaran | Apakah materi berupa teks, tautan, berkas, atau kombinasi? Siapa yang boleh membuat/mengubah/menghapus? Apakah anggota kelas tertutup tetap dapat membaca? Perlu urutan, publikasi terjadwal, atau arsip? |
-| Unggah/unduh berkas | Tentukan jenis berkas, batas ukuran total/per file, kuota, storage privat, akses unduh, masa simpan, penghapusan, pemindaian, dan perilaku kegagalan. Dokumen bertentangan antara 4 MB dan 10 MB: CR-07 mencatat keputusan 4 MB, sementara `SPRINT-0-FOUNDATION.md` menyebut 10 MB dan rencana Sprint 2 meminta rekonsiliasi. Tim perlu menetapkan sumber keputusan yang berlaku dan memperbarui dokumen terkait sebelum implementasi upload. |
+| Unggah/unduh berkas | Tentukan jenis berkas, batas ukuran total/per file, kuota, storage privat, akses unduh, masa simpan, penghapusan, pemindaian, dan perilaku kegagalan. Dokumen bertentangan antara 4 MB dan 10 MB: `OD-07` mencatat keputusan 4 MB, sementara `SPRINT-0-FOUNDATION.md` menyebut 10 MB dan rencana Sprint 2 meminta rekonsiliasi (lihat `CR-10` di `CHANGE-REQUESTS.md`). Tim perlu menetapkan sumber keputusan yang berlaku dan memperbarui dokumen terkait sebelum implementasi upload. |
 | Tugas dan tenggat | Siapa dapat membuat/mengubah/mempublikasikan? Status tugas apa yang diperlukan? Zona waktu, batas waktu, penutupan, keterlambatan, perpanjangan, dan perubahan tugas setelah submission perlu keputusan akademik. |
 | Pengumpulan (FR-40) | Jenis submission (teks/berkas), bukti penerimaan, timestamp, resubmission, versi, pembatalan, dan aturan submission terlambat belum ditetapkan. |
 | Penilaian/feedback | Rubrik atau poin, skala nilai, draft vs dirilis, siapa dapat melihat feedback, revisi nilai, audit, dan proses koreksi/banding memerlukan kebijakan eksplisit. |
@@ -25,7 +25,7 @@ Kandidat berikut bukan prioritas atau komitmen. Tim dapat memilih satu irisan ke
 
 ## Pertanyaan lintas-scope sebelum kontrak
 
-1. Scope mana yang paling bernilai dan dapat diselesaikan oleh kapasitas tim? Aturan akademik/jadwal apa berlaku (CR-06 masih terbuka)?
+1. Scope mana yang paling bernilai dan dapat diselesaikan oleh kapasitas tim? Aturan akademik/jadwal apa berlaku (`OD-06` / `CR-09`)?
 2. Peran dan batas akses apa yang berlaku untuk Dosen, Mahasiswa ACTIVE/PENDING/INACTIVE, Admin, kelas OPEN/CLOSED, dan data setelah kelas ditutup?
 3. Apa alur normal, perubahan, pembatalan, kesalahan, dan konflik untuk tiap kandidat?
 4. Data pribadi/akademik apa yang disimpan, siapa boleh membaca, berapa lama disimpan, dan bagaimana koreksinya?
@@ -35,7 +35,7 @@ Kandidat berikut bukan prioritas atau komitmen. Tim dapat memilih satu irisan ke
 
 ## Agenda sesi kontrak
 
-1. Tinjau kebutuhan sumber dan keputusan yang masih OPEN; rekonsiliasi CR-06 serta konflik upload sebelum menentukan scope terkait berkas.
+1. Tinjau kebutuhan sumber dan keputusan yang masih OPEN; rekonsiliasi `OD-06` (`CR-09`) serta konflik upload (`OD-07` / `CR-10`) sebelum menentukan scope terkait berkas.
 2. Pilih kandidat scope secara eksplisit bersama tim, atau catat alasan penundaan.
 3. Petakan aktor, alur, status, aturan akses, data, dan kebijakan akademik.
 4. Tulis kontrak domain, ERD/schema, API, audit/error, batas eksternal, ancaman keamanan, dan perilaku aksesibilitas.

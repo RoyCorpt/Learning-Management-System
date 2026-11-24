@@ -18,7 +18,7 @@ Sprint ini tidak mencoba membangun seluruh LMS. Ruang lingkup berhenti pada kela
 
 | Area belum dikerjakan | Status / dependensi | Keputusan untuk Sprint 2 |
 |---|---|---|
-| Kelas dan keanggotaan | CR-03 diselesaikan untuk perencanaan Sprint 2 oleh DEC-S2-01. Belum ada model kelas atau membership pada schema Prisma. | Fokus terpilih; desain kode dan otorisasi dicatat di bawah sebelum implementasi. |
+| Kelas dan keanggotaan | `OD-03` diselesaikan untuk perencanaan Sprint 2 oleh `DEC-S2-01`. Belum ada model kelas atau membership pada schema Prisma. | Fokus terpilih; desain kode dan otorisasi dicatat di bawah sebelum implementasi. |
 | Materi pembelajaran | Belum ada schema atau API. Penyimpanan file privat, batas unggah, dan perilaku penghapusan perlu dirancang. Dokumen berbeda antara batas 4 MB dan 10 MB. | Ditunda; selesaikan keputusan batas dan pilihan penyimpanan sebelum sprint implementasi materi/file. |
 | Tugas, pengumpulan, dan penilaian (FR-40) | Belum ada model tugas/submission, aturan tenggat, revisi, format file, atau kebijakan penilaian. Bergantung pada model kelas/keanggotaan. | Ditunda setidaknya sampai alur kelas tersedia dan aturan akademik dicatat. |
 | Notifikasi (FR-38) | Belum ada kanal, pemicu, preferensi, atau penyedia email yang ditetapkan; bergantung pada peristiwa akademik. | Ditunda; mulai dengan keputusan kanal dan daftar peristiwa setelah fitur akademik tersedia. |
@@ -65,7 +65,7 @@ Semua item S2-01–S2-06 selesai dan diterima tim per 2026-11-12 berdasarkan buk
 | Kode join dibocorkan atau ditebak | Keanggotaan kelas tanpa izin. | Kode acak berentropi tinggi, hash-at-rest, rotasi, rate limit, pesan error generik, redaksi log; uji brute-force/IDOR. |
 | Keanggotaan dibuka untuk akun PENDING | Akses akademik sebelum Admin mengaktifkan akun. | Join hanya untuk Mahasiswa ACTIVE; test status PENDING dan INACTIVE. |
 | Kebocoran kelas antar Dosen/Mahasiswa | Data dan daftar anggota lintas kelas dapat diakses. | Otorisasi server-side pada setiap query/mutasi dan tes akses negatif memakai dua kelas/dosen. |
-| Jadwal akademik/ketentuan sprint tidak terkonfirmasi (CR-06) | Periode 15–28 Nov mungkin tidak cocok dengan kalender mata kuliah. | Periode bersifat usulan; sesuaikan bersama kalender tugas sebelum komitmen sprint. Scope/estimasi tidak bergantung pada tanggal tersebut. |
+| Jadwal akademik/ketentuan sprint tidak terkonfirmasi (`OD-06`) | Periode 15–28 Nov mungkin tidak cocok dengan kalender mata kuliah. | Periode bersifat usulan; sesuaikan bersama kalender tugas sebelum komitmen sprint (lihat `CR-09`). Scope/estimasi tidak bergantung pada tanggal tersebut. |
 | Tes Node 20 atau launcher berbeda antar salinan kerja | Integrasi lokal gagal saat implementasi diuji di Windows. | Mulai dari clean dependency install Node 20 dan PostgreSQL yang diketahui; catat versi serta hasil dalam dokumen test Sprint 2. Launcher end-to-end Sprint 1 belum diverifikasi. |
 
 ## Definition of Done
@@ -87,7 +87,7 @@ Kriteria di atas dinyatakan terpenuhi/diterima tim per 2026-11-12 dengan batas v
 
 - Commit lokal Sprint 1 tersedia sebagai titik pemulihan sebelum perubahan kode Sprint 2.
 - Nama anggota, pemilik peran, dan kapasitas person-days diisi; scope dipangkas jika perkiraan melebihi kapasitas.
-- Periode kalender disesuaikan dengan ketentuan akademik (CR-06).
+- Periode kalender disesuaikan dengan ketentuan akademik (`OD-06` / `CR-09`).
 - DEC-S2-01 dan ERD/API contract ditinjau tim sebelum migrasi dibuat.
 
 Tidak ada persetujuan tambahan project owner sebagai gate. Keputusan dan review dilakukan tim di bawah delegasi yang sudah dicatat.

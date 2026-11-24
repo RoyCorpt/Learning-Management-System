@@ -2,6 +2,11 @@
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
+## 2026-11-24 — Rekonsiliasi penomoran `OD-01`…`OD-10` dan daftar terpadu Change Request (`CR-01`…`CR-10`) (`SINTAKS`)
+
+- **Standardisasi Open Decisions (`docs/OPEN-DECISIONS.md` & rujukan `docs/`):** Mengganti seluruh ID `CR-01`…`CR-10` di repositori menjadi **`OD-01`…`OD-10`** (*Open Decision*) serta memperbarui rujukan silang pada `USE-CASE-STATUS-AND-ROADMAP.md`, `SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md`, `SPRINT-3-CONTRACT-HANDOFF.md`, `SPRINT-2-PLAN.md`, dan `SPRINT-0-VERIFICATION-REPORT.md` agar tidak berbenturan dengan penomoran `CR-01`…`CR-08` di dokumen *Tahap G §5* dan *Laporan Akhir §8.4*.
+- **Daftar Terpadu Change Request & Templat Issue (`docs/CHANGE-REQUESTS.md`, `.github/ISSUE_TEMPLATE/change-request.md`, `README.md`):** Menyatukan pemetaan seluruh `OD-01`–`OD-10`, `DEC-S1-*`/`DEC-S2-01`, dan `CR-01`–`CR-10` ke satu daftar kanonik serta menyiapkan draf dan perintah `gh issue create` berlabel `change-request` untuk **`CR-09` (Pemadatan Jadwal)** dan **`CR-10` (Kebijakan Lampiran: batas 4 MB di codebase vs 3×10 MB di laporan)**.
+
 ## 2026-11-23 — Service Worker luring, unggahan berkas/gambar/tautan Tugas & Kuis, serta dukungan rumus LaTeX (`SINTAKS`)
 
 - **Service Worker & Caching Aset Statis (`apps/web/src/sw.ts`, `apps/web/src/lib/pwa.ts`, `apps/web/vite.config.ts`, `apps/web/src/main.tsx`, `apps/web/index.html`, `public/pwa-*.png`, `apps/api/src/app.ts`):**
@@ -114,7 +119,7 @@
 ## 2026-11-16 — Pemutakhiran README, dokumen status & laporan Sprint 3–4
 
 - Memperbarui `README.md` agar mencerminkan status website **SINTAKS** terkini (Sprint 1–4 MVP selesai, Cloud SQL `asia-southeast1` + Drizzle ORM, Firebase Auth, port terpadu `3000`, fitur UI/UX & pencarian/pengurutan kelas, serta batas operasional yang masih berlaku).
-- Memperbarui dokumen status terkait di `docs/`: `USE-CASE-STATUS-AND-ROADMAP.md` (pemetaan `UC-01`–`UC-18`), `DATABASE-SCHEMA.md` (seluruh tabel & enum Drizzle ORM), `IMPLEMENTATION-BASELINE.md`, `OPEN-DECISIONS.md` (`CR-04`, `CR-05`, `CR-07`), dan `SPRINT-3-CONTRACT-HANDOFF.md`.
+- Memperbarui dokumen status terkait di `docs/`: `USE-CASE-STATUS-AND-ROADMAP.md` (pemetaan `UC-01`–`UC-18`), `DATABASE-SCHEMA.md` (seluruh tabel & enum Drizzle ORM), `IMPLEMENTATION-BASELINE.md`, `OPEN-DECISIONS.md` (`OD-04`, `OD-05`, `OD-07`, sebelumnya `CR-04`/`CR-05`/`CR-07`), dan `SPRINT-3-CONTRACT-HANDOFF.md`.
 - Menambahkan `docs/SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md` yang mendokumentasikan perencanaan hingga pelaksanaan Sprint 3, Sprint 4, serta penyempurnaan antarmuka SINTAKS.
 
 ## 2026-11-16 — Pencatatan ulang & pemutakhiran Changelog

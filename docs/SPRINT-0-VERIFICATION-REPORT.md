@@ -14,15 +14,15 @@
 
 ## Risiko residual dan batas cakupan
 
-- CR-01 sampai CR-09 tetap OPEN di `OPEN-DECISIONS.md`; fitur yang bergantung pada keputusan itu belum boleh dianggap disetujui.
+- `OD-01` sampai `OD-09` tetap OPEN di `OPEN-DECISIONS.md` (sebelumnya memakai awalan `CR-`); fitur yang bergantung pada keputusan itu belum boleh dianggap disetujui.
 - LMS bisnis belum dibangun: autentikasi/registrasi dan pemulihan akun, peran/otorisasi, kelas/keanggotaan, materi, tugas/pengumpulan, penilaian, notifikasi, unggah berkas, serta roster resmi/sinkronisasi.
 - Rate limiting, alur CSRF, backup automation, deployment produksi, dan hardening operasional belum termasuk fondasi ini.
 - Hasil audit berlaku pada dependency tree/lockfile yang diverifikasi saat laporan ini dibuat; ulangi audit saat dependency berubah dan sebelum deployment.
 
 ## Langkah Sprint 1
 
-1. Tutup keputusan CR yang menghalangi alur identitas dan akademik; selaraskan kebutuhan, diagram, backlog, dan kriteria penerimaan.
-2. Setelah CR-01 dan CR-02 disahkan, bangun irisan vertikal autentikasi/provisioning akun dengan algoritma hash dan alur yang telah diputuskan.
+1. Tutup keputusan `OD` yang menghalangi alur identitas dan akademik; selaraskan kebutuhan, diagram, backlog, dan kriteria penerimaan.
+2. Setelah `OD-01` dan `OD-02` disahkan, bangun irisan vertikal autentikasi/provisioning akun dengan algoritma hash dan alur yang telah diputuskan.
 3. Tambahkan alur kelas dan akademik sesuai keputusan, lalu lengkapi pengujian, rate limiting/CSRF, backup, serta persiapan deployment pada sprint yang sesuai.
 
 ## Git

@@ -8,14 +8,14 @@ Dokumen ini memetakan seluruh 18 use case (`UC-01`–`UC-18`) terhadap implement
 ## Ringkasan status saat ini
 
 - **Selesai:** 16 use case (`UC-02`, `UC-03`, `UC-05`, `UC-06`, `UC-07`, `UC-08`, `UC-09`, `UC-10`, `UC-11`, `UC-12`, `UC-13`, `UC-14`, `UC-15`, `UC-16`, `UC-17`, `UC-18`).
-- **Diselaraskan dengan keputusan tim (`CR-02`, `DEC-S2-01`) / Selesai sesuai kebijakan:** 2 use case (`UC-01`, `UC-04`).
+- **Diselaraskan dengan keputusan tim (`OD-02`, `DEC-S2-01`) / Selesai sesuai kebijakan:** 2 use case (`UC-01`, `UC-04`).
 - **Sebagian / Belum dimulai:** 0 use case.
 
 ## Pemetaan 18 use case
 
 | ID | Use case / FR | Status | Implementasi & catatan saat ini |
 |---|---|---|---|
-| UC-01 | Mendaftar akun — FR-01, FR-02 | **Selesai (sesuai CR-02)** | Mahasiswa mendaftar dengan NIM + email kampus melalui klaim satu kali pada roster CSV (`PENDING` → aktivasi Admin). Sesuai `CR-02`, akun Dosen dibuat Admin (tidak mendaftar sendiri). |
+| UC-01 | Mendaftar akun — FR-01, FR-02 | **Selesai (sesuai OD-02)** | Mahasiswa mendaftar dengan NIM + email kampus melalui klaim satu kali pada roster CSV (`PENDING` → aktivasi Admin). Sesuai `OD-02`, akun Dosen dibuat Admin (tidak mendaftar sendiri). |
 | UC-02 | Login dan logout — FR-03 | **Selesai** | Login email/sandi (Argon2id), sesi database opaque + cookie `HttpOnly`, CSRF cookie, rate limit, dan logout terimplementasi sebagai satu-satunya alur autentikasi. |
 | UC-03 | Mengelola profil dan memulihkan kata sandi — FR-04, FR-05 | **Selesai (`FR-04` & `FR-05`)** | Pengguna aktif dapat mengedit nama tampilan dan mengganti kata sandi secara mandiri melalui `PATCH /api/users/me/profile` dan banner profil (`ProfileBanner`). Pemulihan **Lupa Kata Sandi** (`FR-05`) terimplementasi di backend tanpa Firebase (`POST /auth/forgot-password`, `GET /auth/reset-password/verify`, `POST /auth/reset-password`) dengan token CSPRNG tersimpan hash SHA-256 sekali pakai di tabel `password_reset_tokens` dan pengiriman tautan melalui SMTP (`nodemailer`). |
 | UC-04 | Menyetujui/menonaktifkan akun dan mengelola kelas — FR-07, FR-12 | **Selesai (sesuai DEC-S2-01)** | Admin membuat akun Dosen, mengimpor roster CSV, mencari & memfilter akun berdasarkan peran/status, serta mengelola status (`ACTIVE`/`INACTIVE`/`PENDING`) dan peran dengan proteksi Admin aktif terakhir. Sesuai `DEC-S2-01`, Dosen membuat dan memiliki kelasnya sendiri (bukan penugasan manual oleh Admin). |
