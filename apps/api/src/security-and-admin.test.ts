@@ -143,6 +143,31 @@ describe('Environment, CORS, cookie, and proxy hardening', () => {
     expect(buildAllowedOrigins(devProxyWithHosts)).toEqual(
       new Set(['http://localhost:3000', 'https://ais-dev-sintaks.asia-southeast1.run.app']),
     );
+
+    // Cloud Run production derives HTTPS origin from APP_URL and recovers safely from stale dev-like overrides.
+    const cloudRunHealed = parseEnv({
+      NODE_ENV: ' Production ',
+      K_SERVICE: 'ais-pre-sintaks',
+      APP_URL: 'https://ais-pre-sintaks.asia-southeast1.run.app',
+      COOKIE_SECURE: 'false',
+      COOKIE_SAME_SITE: 'Lax',
+      TRUST_PROXY: 'true',
+      WEB_ORIGIN: 'http://localhost:3000',
+      CORS_ALLOWED_ORIGINS: 'http://localhost:3000, https://portal.example.ac.id',
+      PASSWORD_RESET_DEV_PREVIEW: '1',
+      SMTP_HOST: 'smtp.incomplete.local',
+      SMTP_PASS: '   ',
+    });
+    expect(cloudRunHealed.NODE_ENV).toBe('production');
+    expect(cloudRunHealed.COOKIE_SECURE).toBe(true);
+    expect(cloudRunHealed.COOKIE_SAME_SITE).toBe('lax');
+    expect(cloudRunHealed.TRUST_PROXY).toBe('1');
+    expect(cloudRunHealed.PASSWORD_RESET_DEV_PREVIEW).toBe(false);
+    expect(cloudRunHealed.WEB_ORIGIN).toBe('https://ais-pre-sintaks.asia-southeast1.run.app');
+    expect(cloudRunHealed.SMTP_HOST).toBeUndefined();
+    expect(buildAllowedOrigins(cloudRunHealed)).toEqual(
+      new Set(['https://portal.example.ac.id', 'https://ais-pre-sintaks.asia-southeast1.run.app']),
+    );
   });
 
   it('enforces exact CORS allowlist, allows credentials only for trusted origins, and rejects untrusted cross-site origins', async () => {

@@ -88,6 +88,14 @@ export function parseOriginFromHosts(rawHosts?: string): string | undefined {
   return parseOriginsFromHosts(rawHosts)[0];
 }
 
+function normalizeBooleanInput(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  if (trimmed === 'true' || trimmed === '1' || trimmed === 'yes') return 'true';
+  if (trimmed === 'false' || trimmed === '0' || trimmed === 'no') return 'false';
+  return raw?.trim();
+}
+
 const booleanFlag = (defaultValue: 'true' | 'false') =>
   z.enum(['true', 'false']).default(defaultValue).transform((v) => v === 'true');
 
@@ -179,7 +187,7 @@ const envSchema = z
     SMTP_PASS: z
       .string()
       .optional()
-      .transform((v) => (v && v.length > 0 ? v : undefined)),
+      .transform((v) => (v && v.trim().length > 0 ? v : undefined)),
     SMTP_FROM: z
       .string()
       .trim()
@@ -257,23 +265,58 @@ const envSchema = z
 export type AppEnv = z.infer<typeof envSchema>;
 
 export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
-  const isProd = rawEnv.NODE_ENV === 'production';
   const normalizedEnv: NodeJS.ProcessEnv = { ...rawEnv };
+
+  if (normalizedEnv.NODE_ENV !== undefined) {
+    const cleanNodeEnv = normalizedEnv.NODE_ENV.trim().toLowerCase();
+    if (cleanNodeEnv) {
+      normalizedEnv.NODE_ENV = cleanNodeEnv;
+    } else {
+      delete normalizedEnv.NODE_ENV;
+    }
+  }
+
+  if (normalizedEnv.COOKIE_SAME_SITE !== undefined) {
+    const cleanSameSite = normalizedEnv.COOKIE_SAME_SITE.trim().toLowerCase();
+    if (cleanSameSite) {
+      normalizedEnv.COOKIE_SAME_SITE = cleanSameSite;
+    } else {
+      delete normalizedEnv.COOKIE_SAME_SITE;
+    }
+  }
+
+  for (const boolKey of ['COOKIE_SECURE', 'PASSWORD_RESET_DEV_PREVIEW', 'SMTP_SECURE'] as const) {
+    const norm = normalizeBooleanInput(normalizedEnv[boolKey]);
+    if (norm === undefined) {
+      delete normalizedEnv[boolKey];
+    } else {
+      normalizedEnv[boolKey] = norm;
+    }
+  }
+
+  const isProd = normalizedEnv.NODE_ENV === 'production';
+  const isCloudRun = Boolean(normalizedEnv.K_SERVICE?.trim());
 
   if (!normalizedEnv.COOKIE_SECURE?.trim()) {
     normalizedEnv.COOKIE_SECURE = isProd ? 'true' : 'false';
   }
 
   if (!normalizedEnv.TRUST_PROXY?.trim()) {
-    normalizedEnv.TRUST_PROXY = normalizedEnv.K_SERVICE ? '1' : 'loopback';
+    normalizedEnv.TRUST_PROXY = isCloudRun ? '1' : 'loopback';
   }
 
   const allowedHostOrigins = parseOriginsFromHosts(normalizedEnv.NG_ALLOWED_HOSTS);
+  const rawAppOrigin = normalizedEnv.APP_URL ? parseExactOriginUrl(normalizedEnv.APP_URL) : null;
+  const appOrigin = rawAppOrigin && (!isProd || rawAppOrigin.startsWith('https://')) ? rawAppOrigin : null;
+  const derivedOrigins = [...allowedHostOrigins];
+  if (appOrigin && !derivedOrigins.includes(appOrigin)) {
+    derivedOrigins.push(appOrigin);
+  }
 
   if (!normalizedEnv.WEB_ORIGIN?.trim()) {
     if (isProd) {
-      if (allowedHostOrigins[0]) {
-        normalizedEnv.WEB_ORIGIN = allowedHostOrigins[0];
+      if (derivedOrigins[0]) {
+        normalizedEnv.WEB_ORIGIN = derivedOrigins[0];
       } else {
         delete normalizedEnv.WEB_ORIGIN;
       }
@@ -282,8 +325,8 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
     }
   }
 
-  if (!normalizedEnv.CORS_ALLOWED_ORIGINS?.trim() && allowedHostOrigins.length > 0) {
-    normalizedEnv.CORS_ALLOWED_ORIGINS = allowedHostOrigins.join(',');
+  if (!normalizedEnv.CORS_ALLOWED_ORIGINS?.trim() && derivedOrigins.length > 0) {
+    normalizedEnv.CORS_ALLOWED_ORIGINS = derivedOrigins.join(',');
   }
 
   for (const key of [
@@ -297,12 +340,70 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
     'PASSWORD_RESET_IP_LIMIT',
     'PASSWORD_RESET_ACCOUNT_LIMIT',
     'PASSWORD_RESET_DEV_PREVIEW',
+    'SMTP_HOST',
+    'SMTP_USER',
+    'SMTP_PASS',
     'SMTP_PORT',
     'SMTP_SECURE',
     'SMTP_FROM',
+    'RATE_LIMIT_SECRET',
+    'CORS_ALLOWED_ORIGINS',
   ] as const) {
     if (normalizedEnv[key] !== undefined && normalizedEnv[key]!.trim() === '') {
       delete normalizedEnv[key];
+    }
+  }
+
+  // On managed Cloud Run production runtime, enforce secure defaults over stale/incomplete optional overrides
+  // so deployment health probes are never blocked by non-fatal config mismatches.
+  if (isProd && isCloudRun) {
+    if (normalizedEnv.COOKIE_SECURE !== 'true') {
+      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_env_hardened', key: 'COOKIE_SECURE', value: 'true' }));
+      normalizedEnv.COOKIE_SECURE = 'true';
+    }
+    if (normalizedEnv.PASSWORD_RESET_DEV_PREVIEW === 'true') {
+      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_env_hardened', key: 'PASSWORD_RESET_DEV_PREVIEW', value: 'false' }));
+      normalizedEnv.PASSWORD_RESET_DEV_PREVIEW = 'false';
+    }
+    if (normalizedEnv.TRUST_PROXY?.trim().toLowerCase() === 'true') {
+      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_env_hardened', key: 'TRUST_PROXY', value: '1' }));
+      normalizedEnv.TRUST_PROXY = '1';
+    }
+    if (normalizedEnv.WEB_ORIGIN) {
+      const parsedOrigin = parseExactOriginUrl(normalizedEnv.WEB_ORIGIN);
+      if (!parsedOrigin || !parsedOrigin.startsWith('https://')) {
+        console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_env_hardened', key: 'WEB_ORIGIN' }));
+        if (derivedOrigins[0]) {
+          normalizedEnv.WEB_ORIGIN = derivedOrigins[0];
+        } else {
+          delete normalizedEnv.WEB_ORIGIN;
+        }
+      }
+    }
+    if (normalizedEnv.CORS_ALLOWED_ORIGINS) {
+      const safeCorsOrigins = normalizedEnv.CORS_ALLOWED_ORIGINS
+        .split(',')
+        .map((item) => parseExactOriginUrl(item))
+        .filter((origin): origin is string => Boolean(origin && origin.startsWith('https://')));
+      const mergedCors = Array.from(new Set([...safeCorsOrigins, ...derivedOrigins]));
+      if (mergedCors.length > 0) {
+        normalizedEnv.CORS_ALLOWED_ORIGINS = mergedCors.join(',');
+      } else {
+        delete normalizedEnv.CORS_ALLOWED_ORIGINS;
+      }
+    }
+    if (normalizedEnv.SMTP_FROM && !isValidFromAddress(normalizedEnv.SMTP_FROM)) {
+      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_env_hardened', key: 'SMTP_FROM' }));
+      delete normalizedEnv.SMTP_FROM;
+    }
+    const hasPartialSmtp =
+      Boolean(normalizedEnv.SMTP_HOST || normalizedEnv.SMTP_USER || normalizedEnv.SMTP_PASS) &&
+      !(normalizedEnv.SMTP_HOST && normalizedEnv.SMTP_USER && normalizedEnv.SMTP_PASS);
+    if (hasPartialSmtp) {
+      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_smtp_incomplete_cleared' }));
+      delete normalizedEnv.SMTP_HOST;
+      delete normalizedEnv.SMTP_USER;
+      delete normalizedEnv.SMTP_PASS;
     }
   }
 
@@ -311,6 +412,15 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
     const details = parsed.error.issues
       .map((issue) => `${issue.path.join('.') || 'env'}: ${issue.message}`)
       .join('; ');
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        event: 'env_validation_failed',
+        nodeEnv: normalizedEnv.NODE_ENV ?? null,
+        isCloudRun,
+        details,
+      }),
+    );
     throw new Error(`Konfigurasi environment tidak valid: ${details}`);
   }
   return parsed.data;
