@@ -2,6 +2,15 @@
 
 > **Kewenangan project owner / project-owner delegation:** Project owner has fully delegated management and decision-making for this project to the student team. The team may make internal scope, technical, review, and Sprint acceptance decisions; no additional project-owner permission or sign-off is a gate. Ini proyek pembelajaran mahasiswa; tim tidak dibayar sebagai pekerja untuk proyek ini. Review dan quality gates adalah praktik belajar dan menjaga mutu, bukan indikasi ketidakprofesionalan atau hubungan kerja.
 
+## 2026-11-24 — Migrasi layanan pengiriman email Lupa Kata Sandi ke Brevo REST API (`SINTAKS`)
+
+- **Layanan Email Brevo (`apps/api/src/services/email.ts`, `apps/api/src/config/env.ts`, `.env.example`, hapus `apps/api/src/lib/mailer.ts`):**
+  - Membuat modul `apps/api/src/services/email.ts` yang memanggil Brevo Transactional Email REST API (`https://api.brevo.com/v3/smtp/email`) via `fetch` dengan header `api-key` dan timeout 15 detik, sambil mempertahankan `PASSWORD_RESET_DEV_PREVIEW` khusus mode pengembangan.
+  - Mengganti konfigurasi `SMTP_*` menjadi `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, dan `BREVO_SENDER_NAME` (default `SINTAKS`) pada `.env.example` serta validasi berpasangan di `apps/api/src/config/env.ts` (dengan pemulihan aman pada runtime Cloud Run bila pasangan konfigurasi belum lengkap).
+- **Integrasi Auth, Startup & Uji Regresi (`apps/api/src/auth.ts`, `apps/api/src/server.ts`, `apps/api/src/password-reset.test.ts`, `apps/api/src/security-and-admin.test.ts`):**
+  - Memperbarui rute `/auth/forgot-password` dan pemeriksaan startup `server.ts` untuk memakai `services/email.ts`, tetap membatalkan token reset di DB dan mengembalikan `503 EMAIL_DELIVERY_FAILED` tanpa membocorkan kunci API atau token mentah saat pengiriman gagal.
+  - Memperbarui uji validasi env dan menambahkan uji unit pengiriman & kegagalan API Brevo di `password-reset.test.ts`.
+
 ## 2026-11-24 — Rekonsiliasi penomoran `OD-01`…`OD-10` dan daftar terpadu Change Request (`CR-01`…`CR-10`) (`SINTAKS`)
 
 - **Standardisasi Open Decisions (`docs/OPEN-DECISIONS.md` & rujukan `docs/`):** Mengganti seluruh ID `CR-01`…`CR-10` di repositori menjadi **`OD-01`…`OD-10`** (*Open Decision*) serta memperbarui rujukan silang pada `USE-CASE-STATUS-AND-ROADMAP.md`, `SPRINT-3-AND-4-PLAN-TO-IMPLEMENTATION.md`, `SPRINT-3-CONTRACT-HANDOFF.md`, `SPRINT-2-PLAN.md`, dan `SPRINT-0-VERIFICATION-REPORT.md` agar tidak berbenturan dengan penomoran `CR-01`…`CR-08` di dokumen *Tahap G §5* dan *Laporan Akhir §8.4*.

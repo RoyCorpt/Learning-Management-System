@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type express from 'express';
 import { env } from './config/env.js';
 import { createApp, type DevFrontend } from './app.js';
-import { isPasswordResetEmailDeliveryConfigured } from './lib/mailer.js';
+import { isPasswordResetEmailDeliveryConfigured } from './services/email.js';
 import { pool } from '../../../src/db/index.js';
 
 type ViteServerLike = DevFrontend & {
@@ -73,6 +73,7 @@ async function createDevViteServer(): Promise<ViteServerLike | undefined> {
     server: {
       middlewareMode: true,
       hmr: false,
+      ws: false,
       fs: {
         allow: [repoRoot],
       },
@@ -132,12 +133,22 @@ async function start() {
     process.exit(1);
   }
 
+  if (env.BREVO_API_KEY?.startsWith('xsmtpsib-')) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'brevo_key_type_mismatch',
+        message: 'BREVO_API_KEY diawali "xsmtpsib-" (kunci SMTP). REST API Brevo membutuhkan API key v3 yang diawali "xkeysib-".',
+      }),
+    );
+  }
+
   if (env.NODE_ENV === 'production' && !isPasswordResetEmailDeliveryConfigured(env)) {
     console.warn(
       JSON.stringify({
         level: 'warn',
-        event: 'password_reset_smtp_unconfigured',
-        message: 'SMTP belum dikonfigurasi; endpoint Lupa Kata Sandi mengembalikan 503 hingga SMTP_* diisi.',
+        event: 'password_reset_email_unconfigured',
+        message: 'Brevo (BREVO_API_KEY/BREVO_SENDER_EMAIL) belum dikonfigurasi; endpoint Lupa Kata Sandi mengembalikan 503 hingga konfigurasi email diisi.',
       }),
     );
   }

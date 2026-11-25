@@ -1,6 +1,6 @@
 # API Authentication Contract
 
-**Version:** 1.4 · **Tanggal:** 2026-11-22 · **Status:** Hardened for production configuration (CORS, SMTP, PostgreSQL rate limiting, paginated Admin accounts)
+**Version:** 1.5 · **Tanggal:** 2026-11-24 · **Status:** Hardened for production configuration (CORS, Brevo email API, PostgreSQL rate limiting, paginated Admin accounts)
 
 Base URL is `http://localhost:3000` in integrated local development. JSON errors follow `{ "error": { "code", "message", "requestId"? } }`. Password hashes and submitted passwords are never returned; a generated temporary credential is returned once by Admin provisioning. Session credentials are opaque random tokens; only SHA-256 token digests are stored in `sessions`.
 
@@ -8,7 +8,7 @@ Base URL is `http://localhost:3000` in integrated local development. JSON errors
 |---|---|---|
 | `POST /auth/register` | Public | `{email,nim,password}`. Email normalized and checked against `STUDENT_EMAIL_DOMAINS`, then against one eligible, unused roster entry. The entry is atomically claimed once; creates MAHASISWA/PENDING (`202`). Password min 12 characters. |
 | `POST /auth/login` | Public, rate limited | `{email,password}`. On success sets host-only `lms_session` HttpOnly and `lms_csrf` readable cookie (`SameSite` controlled by `COOKIE_SAME_SITE`, default `lax`, `Secure` in prod); returns safe profile. Generic `401` for invalid, absent, or inactive credentials. |
-| `POST /auth/forgot-password` | Public, PostgreSQL rate limited | `{email}` (trimmed & lowercased). Protected by dual PostgreSQL counters (`PASSWORD_RESET_IP_LIMIT` per IP and `PASSWORD_RESET_ACCOUNT_LIMIT` per HMAC-keyed normalized email across IPs). Invalidates prior unused tokens, creates a 32-byte CSPRNG SHA-256 token, and sends `/#resetToken=<token>` via SMTP (`nodemailer`). Returns generic `200` when deliverable or enumeration-safe, `429` with `Retry-After` when throttled, or `503 EMAIL_DELIVERY_FAILED` after invalidating the created token on SMTP failure. Sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. |
+| `POST /auth/forgot-password` | Public, PostgreSQL rate limited | `{email}` (trimmed & lowercased). Protected by dual PostgreSQL counters (`PASSWORD_RESET_IP_LIMIT` per IP and `PASSWORD_RESET_ACCOUNT_LIMIT` per HMAC-keyed normalized email across IPs). Invalidates prior unused tokens, creates a 32-byte CSPRNG SHA-256 token, and sends `/#resetToken=<token>` via Brevo REST API (`apps/api/src/services/email.ts`). Returns generic `200` when deliverable or enumeration-safe, `429` with `Retry-After` when throttled, or `503 EMAIL_DELIVERY_FAILED` after invalidating the created token when email delivery is unconfigured or fails. Sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. |
 | `POST /auth/reset-password/verify` | Public, PostgreSQL rate limited | `{token}` in JSON body (never URL query params). Verifies active, unused, unexpired token for an `ACTIVE` user; returns `{ valid: true }` (`200`) or `400 INVALID_RESET_TOKEN`. Sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. |
 | `POST /auth/reset-password` | Public, PostgreSQL rate limited | `{token,newPassword}` (min 12 chars). Atomically claims token inside a DB transaction, updates Argon2id hash, increments `auth_version`, revokes all active sessions, writes `AUTH_PASSWORD_RESET_COMPLETED` audit event, and clears auth cookies. Sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. |
 | `POST /auth/logout` | Active session + CSRF | Send `X-CSRF-Token` equal to CSRF cookie. Revokes current session and clears cookies. |
@@ -29,7 +29,7 @@ All non-public routes deny access unless a valid, unexpired, unrevoked session b
 - `COOKIE_SECURE` must be `true` when `NODE_ENV=production` or when `COOKIE_SAME_SITE=none`. Cookie secure flagging also requires the request itself to be HTTPS (`req.secure` honored only from configured `TRUST_PROXY`).
 - `COOKIE_SAME_SITE` defaults to `lax` (supports `lax`, `strict`, `none`). Cookies are host-only (no `Domain` attribute).
 - `TRUST_PROXY` defaults to `loopback`, accepts `false`, integer hop count `1–5`, named Express subnets (`loopback`, `linklocal`, `uniquelocal`), or IP/CIDR allowlists, and explicitly rejects `'true'`.
-- `NODE_ENV=production` enforces fail-closed startup validation: requires `COOKIE_SECURE=true`, `https://` on `WEB_ORIGIN` and `CORS_ALLOWED_ORIGINS`, `PASSWORD_RESET_DEV_PREVIEW=false`, and valid `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`.
+- `NODE_ENV=production` enforces fail-closed startup validation: requires `COOKIE_SECURE=true`, `https://` on `WEB_ORIGIN` and `CORS_ALLOWED_ORIGINS`, `PASSWORD_RESET_DEV_PREVIEW=false`, and paired `BREVO_API_KEY` + valid `BREVO_SENDER_EMAIL` whenever Brevo is configured (partial pairs are safely cleared on managed Cloud Run while `/auth/forgot-password` returns `503 EMAIL_DELIVERY_FAILED` until configured).
 - `SESSION_TTL_HOURS` defaults to `12` (`1–168`). `PASSWORD_RESET_TTL_MINUTES` defaults to `30` (`5–120`).
 - `STUDENT_EMAIL_DOMAINS` is a comma-separated allowlist defaulting to `unimed.ac.id,mhs.unimed.ac.id`.
 

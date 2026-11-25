@@ -20,7 +20,7 @@ import {
   isPasswordResetEmailDeliveryConfigured,
   MailDeliveryError,
   sendPasswordResetEmail,
-} from './lib/mailer.js';
+} from './services/email.js';
 import {
   consumeRateLimit,
   deriveAccountRateLimitKey,

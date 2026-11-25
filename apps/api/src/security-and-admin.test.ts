@@ -28,12 +28,9 @@ function validProductionEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEn
     COOKIE_SECURE: 'true',
     COOKIE_SAME_SITE: 'lax',
     PASSWORD_RESET_DEV_PREVIEW: 'false',
-    SMTP_HOST: 'smtp.example.ac.id',
-    SMTP_PORT: '587',
-    SMTP_SECURE: 'false',
-    SMTP_USER: 'mailer@example.ac.id',
-    SMTP_PASS: 'super-secret-smtp-password',
-    SMTP_FROM: 'SINTAKS <no-reply@example.ac.id>',
+    BREVO_API_KEY: 'xkeysib-production-test-key',
+    BREVO_SENDER_EMAIL: 'no-reply@example.ac.id',
+    BREVO_SENDER_NAME: 'SINTAKS',
     ...overrides,
   };
 }
@@ -102,9 +99,9 @@ describe('Environment, CORS, cookie, and proxy hardening', () => {
     expect(() => parseEnv(validProductionEnv({ PASSWORD_RESET_DEV_PREVIEW: 'true' }))).toThrow(
       /PASSWORD_RESET_DEV_PREVIEW/,
     );
-    expect(() => parseEnv(validProductionEnv({ SMTP_HOST: '' }))).toThrow(/SMTP_HOST/);
-    expect(() => parseEnv(validProductionEnv({ SMTP_PASS: '' }))).toThrow(/SMTP_USER/);
-    expect(() => parseEnv(validProductionEnv({ SMTP_FROM: 'invalid-from' }))).toThrow(/SMTP_FROM/);
+    expect(() => parseEnv(validProductionEnv({ BREVO_API_KEY: '' }))).toThrow(/BREVO_API_KEY/);
+    expect(() => parseEnv(validProductionEnv({ BREVO_SENDER_EMAIL: '' }))).toThrow(/BREVO_API_KEY/);
+    expect(() => parseEnv(validProductionEnv({ BREVO_SENDER_EMAIL: 'invalid-from' }))).toThrow(/BREVO_SENDER_EMAIL/);
     expect(() => parseEnv(validProductionEnv({ TRUST_PROXY: 'true' }))).toThrow(/TRUST_PROXY/);
     expect(() =>
       parseEnv({
@@ -114,7 +111,7 @@ describe('Environment, CORS, cookie, and proxy hardening', () => {
       }),
     ).toThrow(/COOKIE_SECURE/);
 
-    // Cloud Run production startup without explicit WEB_ORIGIN / COOKIE_SECURE / SMTP_* should apply secure defaults.
+    // Cloud Run production startup without explicit WEB_ORIGIN / COOKIE_SECURE / BREVO_* should apply secure defaults.
     const cloudRunProd = parseEnv({
       NODE_ENV: 'production',
       K_SERVICE: 'ais-pre-sintaks',
@@ -155,8 +152,8 @@ describe('Environment, CORS, cookie, and proxy hardening', () => {
       WEB_ORIGIN: 'http://localhost:3000',
       CORS_ALLOWED_ORIGINS: 'http://localhost:3000, https://portal.example.ac.id',
       PASSWORD_RESET_DEV_PREVIEW: '1',
-      SMTP_HOST: 'smtp.incomplete.local',
-      SMTP_PASS: '   ',
+      BREVO_API_KEY: 'xkeysib-incomplete',
+      BREVO_SENDER_EMAIL: '   ',
     });
     expect(cloudRunHealed.NODE_ENV).toBe('production');
     expect(cloudRunHealed.COOKIE_SECURE).toBe(true);
@@ -164,10 +161,31 @@ describe('Environment, CORS, cookie, and proxy hardening', () => {
     expect(cloudRunHealed.TRUST_PROXY).toBe('1');
     expect(cloudRunHealed.PASSWORD_RESET_DEV_PREVIEW).toBe(false);
     expect(cloudRunHealed.WEB_ORIGIN).toBe('https://ais-pre-sintaks.asia-southeast1.run.app');
-    expect(cloudRunHealed.SMTP_HOST).toBeUndefined();
+    expect(cloudRunHealed.BREVO_API_KEY).toBeUndefined();
+    expect(cloudRunHealed.BREVO_SENDER_EMAIL).toBeUndefined();
     expect(buildAllowedOrigins(cloudRunHealed)).toEqual(
       new Set(['https://portal.example.ac.id', 'https://ais-pre-sintaks.asia-southeast1.run.app']),
     );
+
+    const cloudRunDevBadBrevo = parseEnv({
+      NODE_ENV: 'development',
+      K_SERVICE: 'ais-dev-sintaks',
+      BREVO_API_KEY: 'xkeysib-dev-test',
+      BREVO_SENDER_EMAIL: 'not-a-valid-email',
+    });
+    expect(cloudRunDevBadBrevo.BREVO_API_KEY).toBeUndefined();
+    expect(cloudRunDevBadBrevo.BREVO_SENDER_EMAIL).toBeUndefined();
+
+    const senderPartsEnv = parseEnv(
+      validProductionEnv({
+        BREVO_API_KEY: 'Bearer "xkeysib-prefixed-key-123"',
+        BREVO_SENDER_EMAIL: '"Portal SINTAKS <No-Reply@Example.AC.ID>"',
+        BREVO_SENDER_NAME: undefined,
+      }),
+    );
+    expect(senderPartsEnv.BREVO_API_KEY).toBe('xkeysib-prefixed-key-123');
+    expect(senderPartsEnv.BREVO_SENDER_EMAIL).toBe('no-reply@example.ac.id');
+    expect(senderPartsEnv.BREVO_SENDER_NAME).toBe('Portal SINTAKS');
   });
 
   it('enforces exact CORS allowlist, allows credentials only for trusted origins, and rejects untrusted cross-site origins', async () => {
@@ -212,7 +230,7 @@ describe('Environment, CORS, cookie, and proxy hardening', () => {
     }
   }, 15000);
 
-  it('allows same-origin HTTPS requests behind Cloud Run proxy even when WEB_ORIGIN and SMTP are omitted', async () => {
+  it('allows same-origin HTTPS requests behind Cloud Run proxy even when WEB_ORIGIN and BREVO_* are omitted', async () => {
     const cloudRunEnv = parseEnv({
       NODE_ENV: 'production',
       K_SERVICE: 'ais-pre-sintaks',

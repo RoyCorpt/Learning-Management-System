@@ -58,7 +58,7 @@ Untuk memudahkan audit dari satu dokumen, berikut rangkuman seluruh keputusan in
 1. **Autentikasi, Sesi & Keamanan (`OD-01`, `OD-02`, `OD-08`–`OD-10`, `DEC-S1-01`–`DEC-S1-10`):**
    - Hashing Argon2id (`19456 KiB`, `timeCost=2`, `parallelism=1`), sesi opaque DB + cookie `HttpOnly` (`COOKIE_SAME_SITE=lax` default, `COOKIE_SECURE=true` wajib di produksi) + proteksi CSRF.
    - Pembuatan akun Dosen hanya oleh Admin; registrasi Mahasiswa memakai klaim satu kali atas CSV roster resmi (`layak` → `registration_eligible`) dengan domain default `unimed.ac.id,mhs.unimed.ac.id` dan status awal `PENDING`.
-   - Pemulihan kata sandi (`FR-05`) menggunakan token CSPRNG terhash SHA-256 di `password_reset_tokens` dengan URL fragment `#resetToken=`, rate limit atomik PostgreSQL (`rate_limit_buckets`), dan email SMTP `nodemailer` (tanpa Firebase/Google Sign-In).
+   - Pemulihan kata sandi (`FR-05`) menggunakan token CSPRNG terhash SHA-256 di `password_reset_tokens` dengan URL fragment `#resetToken=`, rate limit atomik PostgreSQL (`rate_limit_buckets`), dan REST API Brevo (`apps/api/src/services/email.ts`, tanpa Firebase/Google Sign-In).
 2. **Kelas, Pembelajaran & Komunikasi (`OD-03`, `OD-04`, `OD-05`, `DEC-S2-01`):**
    - Pendaftaran kelas Mahasiswa memakai kode undangan 43 karakter sekali tampil milik Dosen (`OPEN`/`CLOSED`).
    - Topik, materi (`TEXT`/`LINK`/`FILE`), tugas & pengumpulan transaksional `Serializable` berversi (`Versi ke-N`), penilaian tugas `DRAFT`/`PUBLISHED`, kuis daring PG/Esai berwaktu dengan autosave, pengumuman, forum diskusi (jendela sunting 15 menit), notifikasi dalam aplikasi (`FR-38`), dan rendering matematika LaTeX/KaTeX luring.

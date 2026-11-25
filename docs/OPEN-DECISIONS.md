@@ -26,7 +26,7 @@ Dokumen ini mencatat keputusan terbuka dan hasil rekonsiliasinya sejak baseline 
 4. Setelah disetujui, perbarui SRS/kebutuhan, use case, activity/sequence diagram, ERD, backlog, dan test case yang terdampak.
 
 ## Pembaruan arsitektur terkini (2026-11-24)
-- Implementasi aktif menggunakan React + TypeScript + Vite (**SINTAKS**), Express + TypeScript, PostgreSQL (Cloud SQL `asia-southeast1`) + **Drizzle ORM** (`src/db/schema.ts`), serta autentikasi email/kata sandi Argon2id + sesi database + pemulihan kata sandi non-Firebase (`nodemailer`), Workbox PWA Service Worker, unggahan lampiran Materi/Tugas/Kuis maks. **4 MB**, dan rendering matematika KaTeX/LaTeX.
+- Implementasi aktif menggunakan React + TypeScript + Vite (**SINTAKS**), Express + TypeScript, PostgreSQL (Cloud SQL `asia-southeast1`) + **Drizzle ORM** (`src/db/schema.ts`), serta autentikasi email/kata sandi Argon2id + sesi database + pemulihan kata sandi non-Firebase (REST API Brevo di `apps/api/src/services/email.ts`), Workbox PWA Service Worker, unggahan lampiran Materi/Tugas/Kuis maks. **4 MB**, dan rendering matematika KaTeX/LaTeX.
 - Catatan historis `docs/SPRINT-1-REVIEW.patch` dipertahankan apa adanya sebagai arsip snapshot diff Sprint 1 terhadap commit `4bd8740`.
 
 ## Sumber keputusan Sprint 1

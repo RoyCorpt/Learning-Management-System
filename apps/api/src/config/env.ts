@@ -62,12 +62,39 @@ export function resolveTrustProxySetting(raw: string): boolean | number | string
 
 const simpleEmailRegex = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
-export function isValidFromAddress(value: string): boolean {
+export function stripMatchingQuotes(value: string): string {
   const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 255) return false;
-  const angleMatch = trimmed.match(/^[^<>]*<([^<>]+)>$/);
-  const emailPart = angleMatch ? angleMatch[1]!.trim() : trimmed;
-  return simpleEmailRegex.test(emailPart);
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+export function normalizeBrevoApiKey(value: string): string {
+  const clean = stripMatchingQuotes(value);
+  return stripMatchingQuotes(clean.replace(/^(?:bearer\s+|api-key\s*:\s*)/i, ''));
+}
+
+export function extractSenderParts(value: string): { email: string; name?: string } | null {
+  const clean = stripMatchingQuotes(value);
+  if (!clean || clean.length > 255) return null;
+  const angleMatch = clean.match(/^([^<>]*)<([^<>]+)>$/);
+  if (angleMatch) {
+    const displayName = stripMatchingQuotes(angleMatch[1]!);
+    const emailPart = angleMatch[2]!.trim().toLowerCase();
+    if (!simpleEmailRegex.test(emailPart)) return null;
+    return { email: emailPart, ...(displayName ? { name: displayName } : {}) };
+  }
+  const emailPart = clean.toLowerCase();
+  if (!simpleEmailRegex.test(emailPart)) return null;
+  return { email: emailPart };
+}
+
+export function isValidFromAddress(value: string): boolean {
+  return extractSenderParts(value) !== null;
 }
 
 export function parseOriginsFromHosts(rawHosts?: string): string[] {
@@ -172,27 +199,36 @@ const envSchema = z
       .optional()
       .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
     PASSWORD_RESET_DEV_PREVIEW: booleanFlag('false'),
-    SMTP_HOST: z
-      .string()
-      .trim()
-      .optional()
-      .transform((v) => (v && v.length > 0 ? v : undefined)),
-    SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
-    SMTP_SECURE: booleanFlag('false'),
-    SMTP_USER: z
-      .string()
-      .trim()
-      .optional()
-      .transform((v) => (v && v.length > 0 ? v : undefined)),
-    SMTP_PASS: z
+    BREVO_API_KEY: z
       .string()
       .optional()
-      .transform((v) => (v && v.trim().length > 0 ? v : undefined)),
-    SMTP_FROM: z
+      .transform((v) => {
+        if (!v) return undefined;
+        const clean = normalizeBrevoApiKey(v);
+        return clean.length > 0 ? clean : undefined;
+      }),
+    BREVO_SENDER_EMAIL: z
+      .string()
+      .optional()
+      .transform((v, ctx) => {
+        if (!v) return undefined;
+        const clean = stripMatchingQuotes(v);
+        if (clean.length === 0) return undefined;
+        const parts = extractSenderParts(clean);
+        if (!parts) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'BREVO_SENDER_EMAIL harus berupa alamat email pengirim yang valid.',
+          });
+          return z.NEVER;
+        }
+        return parts.email;
+      }),
+    BREVO_SENDER_NAME: z
       .string()
       .trim()
-      .default('SINTAKS <no-reply@sintaks.local>')
-      .refine(isValidFromAddress, { message: 'SMTP_FROM harus berupa alamat email pengirim yang valid.' }),
+      .max(120)
+      .default('SINTAKS'),
   })
   .superRefine((data, ctx) => {
     if (data.COOKIE_SAME_SITE === 'none' && !data.COOKIE_SECURE) {
@@ -203,11 +239,11 @@ const envSchema = z
       });
     }
 
-    if (Boolean(data.SMTP_USER) !== Boolean(data.SMTP_PASS)) {
+    if (Boolean(data.BREVO_API_KEY) !== Boolean(data.BREVO_SENDER_EMAIL)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['SMTP_USER'],
-        message: 'SMTP_USER dan SMTP_PASS harus diisi berpasangan.',
+        path: ['BREVO_API_KEY'],
+        message: 'BREVO_API_KEY dan BREVO_SENDER_EMAIL harus diisi berpasangan.',
       });
     }
 
@@ -242,23 +278,6 @@ const envSchema = z
           message: 'PASSWORD_RESET_DEV_PREVIEW tidak boleh bernilai true pada mode produksi.',
         });
       }
-      const hasAnySmtp = Boolean(data.SMTP_HOST || data.SMTP_USER || data.SMTP_PASS);
-      if (hasAnySmtp) {
-        if (!data.SMTP_HOST) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['SMTP_HOST'],
-            message: 'SMTP_HOST wajib dikonfigurasi pada mode produksi untuk fitur Lupa Kata Sandi.',
-          });
-        }
-        if (!data.SMTP_USER || !data.SMTP_PASS) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['SMTP_USER'],
-            message: 'SMTP_USER dan SMTP_PASS wajib dikonfigurasi pada mode produksi.',
-          });
-        }
-      }
     }
   });
 
@@ -285,7 +304,7 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
     }
   }
 
-  for (const boolKey of ['COOKIE_SECURE', 'PASSWORD_RESET_DEV_PREVIEW', 'SMTP_SECURE'] as const) {
+  for (const boolKey of ['COOKIE_SECURE', 'PASSWORD_RESET_DEV_PREVIEW'] as const) {
     const norm = normalizeBooleanInput(normalizedEnv[boolKey]);
     if (norm === undefined) {
       delete normalizedEnv[boolKey];
@@ -329,6 +348,15 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
     normalizedEnv.CORS_ALLOWED_ORIGINS = derivedOrigins.join(',');
   }
 
+  if (normalizedEnv.BREVO_API_KEY !== undefined) {
+    normalizedEnv.BREVO_API_KEY = normalizeBrevoApiKey(normalizedEnv.BREVO_API_KEY);
+  }
+  for (const brevoKey of ['BREVO_SENDER_EMAIL', 'BREVO_SENDER_NAME'] as const) {
+    if (normalizedEnv[brevoKey] !== undefined) {
+      normalizedEnv[brevoKey] = stripMatchingQuotes(normalizedEnv[brevoKey]!);
+    }
+  }
+
   for (const key of [
     'NODE_ENV',
     'API_PORT',
@@ -340,17 +368,41 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
     'PASSWORD_RESET_IP_LIMIT',
     'PASSWORD_RESET_ACCOUNT_LIMIT',
     'PASSWORD_RESET_DEV_PREVIEW',
-    'SMTP_HOST',
-    'SMTP_USER',
-    'SMTP_PASS',
-    'SMTP_PORT',
-    'SMTP_SECURE',
-    'SMTP_FROM',
+    'BREVO_API_KEY',
+    'BREVO_SENDER_EMAIL',
+    'BREVO_SENDER_NAME',
     'RATE_LIMIT_SECRET',
     'CORS_ALLOWED_ORIGINS',
   ] as const) {
     if (normalizedEnv[key] !== undefined && normalizedEnv[key]!.trim() === '') {
       delete normalizedEnv[key];
+    }
+  }
+
+  if (normalizedEnv.BREVO_SENDER_EMAIL) {
+    const parts = extractSenderParts(normalizedEnv.BREVO_SENDER_EMAIL);
+    if (parts) {
+      normalizedEnv.BREVO_SENDER_EMAIL = parts.email;
+      if (parts.name && !normalizedEnv.BREVO_SENDER_NAME?.trim()) {
+        normalizedEnv.BREVO_SENDER_NAME = parts.name;
+      }
+    }
+  }
+
+  // On managed Cloud Run runtime (dev or prod), safely clear malformed or partial optional Brevo email overrides
+  // so startup and health probes are never blocked while /auth/forgot-password fails closed cleanly.
+  if (isCloudRun) {
+    if (normalizedEnv.BREVO_SENDER_EMAIL && !extractSenderParts(normalizedEnv.BREVO_SENDER_EMAIL)) {
+      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_env_hardened', key: 'BREVO_SENDER_EMAIL' }));
+      delete normalizedEnv.BREVO_SENDER_EMAIL;
+    }
+    const hasPartialBrevo =
+      Boolean(normalizedEnv.BREVO_API_KEY || normalizedEnv.BREVO_SENDER_EMAIL) &&
+      !(normalizedEnv.BREVO_API_KEY && normalizedEnv.BREVO_SENDER_EMAIL);
+    if (hasPartialBrevo) {
+      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_brevo_incomplete_cleared' }));
+      delete normalizedEnv.BREVO_API_KEY;
+      delete normalizedEnv.BREVO_SENDER_EMAIL;
     }
   }
 
@@ -391,19 +443,6 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
       } else {
         delete normalizedEnv.CORS_ALLOWED_ORIGINS;
       }
-    }
-    if (normalizedEnv.SMTP_FROM && !isValidFromAddress(normalizedEnv.SMTP_FROM)) {
-      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_env_hardened', key: 'SMTP_FROM' }));
-      delete normalizedEnv.SMTP_FROM;
-    }
-    const hasPartialSmtp =
-      Boolean(normalizedEnv.SMTP_HOST || normalizedEnv.SMTP_USER || normalizedEnv.SMTP_PASS) &&
-      !(normalizedEnv.SMTP_HOST && normalizedEnv.SMTP_USER && normalizedEnv.SMTP_PASS);
-    if (hasPartialSmtp) {
-      console.warn(JSON.stringify({ level: 'warn', event: 'cloudrun_smtp_incomplete_cleared' }));
-      delete normalizedEnv.SMTP_HOST;
-      delete normalizedEnv.SMTP_USER;
-      delete normalizedEnv.SMTP_PASS;
     }
   }
 

@@ -15,12 +15,14 @@ import {
 import { createApp } from './app.js';
 import { parseEnv, type AppEnv } from './config/env.js';
 import {
+  BREVO_SEND_EMAIL_ENDPOINT,
   buildPasswordResetUrl,
   isPasswordResetEmailDeliveryConfigured,
   MailDeliveryError,
+  sendPasswordResetEmail,
   setPasswordResetMailHook,
   type PasswordResetEmailPayload,
-} from './lib/mailer.js';
+} from './services/email.js';
 import {
   deriveAccountRateLimitKey,
   deriveIpRateLimitKey,
@@ -79,9 +81,26 @@ describe('Lupa Kata Sandi (backend token reset without Firebase)', () => {
     expect(
       isPasswordResetEmailDeliveryConfigured({
         NODE_ENV: 'production',
-        SMTP_HOST: undefined,
-        SMTP_USER: undefined,
-        SMTP_PASS: undefined,
+        BREVO_API_KEY: undefined,
+        BREVO_SENDER_EMAIL: undefined,
+        PASSWORD_RESET_DEV_PREVIEW: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      isPasswordResetEmailDeliveryConfigured({
+        NODE_ENV: 'production',
+        BREVO_API_KEY: 'xkeysib-test-key',
+        BREVO_SENDER_EMAIL: 'no-reply@example.ac.id',
+        PASSWORD_RESET_DEV_PREVIEW: false,
+      }),
+    ).toBe(true);
+
+    expect(
+      isPasswordResetEmailDeliveryConfigured({
+        NODE_ENV: 'development',
+        BREVO_API_KEY: undefined,
+        BREVO_SENDER_EMAIL: undefined,
         PASSWORD_RESET_DEV_PREVIEW: false,
       }),
     ).toBe(false);
@@ -89,19 +108,8 @@ describe('Lupa Kata Sandi (backend token reset without Firebase)', () => {
     expect(
       isPasswordResetEmailDeliveryConfigured({
         NODE_ENV: 'development',
-        SMTP_HOST: undefined,
-        SMTP_USER: undefined,
-        SMTP_PASS: undefined,
-        PASSWORD_RESET_DEV_PREVIEW: false,
-      }),
-    ).toBe(false);
-
-    expect(
-      isPasswordResetEmailDeliveryConfigured({
-        NODE_ENV: 'development',
-        SMTP_HOST: undefined,
-        SMTP_USER: undefined,
-        SMTP_PASS: undefined,
+        BREVO_API_KEY: undefined,
+        BREVO_SENDER_EMAIL: undefined,
         PASSWORD_RESET_DEV_PREVIEW: true,
       }),
     ).toBe(true);
@@ -145,6 +153,102 @@ describe('Lupa Kata Sandi (backend token reset without Firebase)', () => {
       await stopTestServer(server);
     }
   }, 15000);
+
+  it('sends password reset emails through the Brevo REST API and fails safely without leaking keys or tokens on provider errors', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalConsoleError = console.error;
+    const capturedRequests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const loggedErrors: string[] = [];
+    const testApiKey = 'xkeysib-unit-secret-key-999';
+    const rawResetUrl = 'https://sintaks.example.ac.id/#resetToken=secret-unit-token-xyz';
+
+    setPasswordResetMailHook(null);
+    console.error = (...args: unknown[]) => {
+      loggedErrors.push(args.map((a) => String(a)).join(' '));
+    };
+
+    try {
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        capturedRequests.push({ url: String(input), init });
+        return new Response(JSON.stringify({ messageId: '<msg-brevo-1@sintaks>' }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      await sendPasswordResetEmail(
+        {
+          to: 'mahasiswa@example.ac.id',
+          fullName: 'Budi <Santoso> & Team',
+          resetUrl: rawResetUrl,
+          expiresInMinutes: 30,
+        },
+        {
+          NODE_ENV: 'production',
+          BREVO_API_KEY: testApiKey,
+          BREVO_SENDER_EMAIL: 'no-reply@example.ac.id',
+          BREVO_SENDER_NAME: 'SINTAKS UNIMED',
+          PASSWORD_RESET_DEV_PREVIEW: false,
+        },
+      );
+
+      expect(capturedRequests).toHaveLength(1);
+      const req = capturedRequests[0]!;
+      expect(req.url).toBe(BREVO_SEND_EMAIL_ENDPOINT);
+      expect(req.init?.method).toBe('POST');
+      const headers = req.init?.headers as Record<string, string>;
+      expect(headers['api-key']).toBe(testApiKey);
+      expect(headers['content-type']).toBe('application/json');
+
+      const body = JSON.parse(String(req.init?.body)) as {
+        sender: { name: string; email: string };
+        to: Array<{ email: string; name?: string }>;
+        subject: string;
+        htmlContent: string;
+        textContent: string;
+      };
+      expect(body.sender).toEqual({ name: 'SINTAKS UNIMED', email: 'no-reply@example.ac.id' });
+      expect(body.to).toEqual([{ email: 'mahasiswa@example.ac.id', name: 'Budi <Santoso> & Team' }]);
+      expect(body.subject).toContain('SINTAKS');
+      expect(body.htmlContent).toContain('Budi &lt;Santoso&gt; &amp; Team');
+      expect(body.htmlContent).toContain(rawResetUrl);
+      expect(body.textContent).toContain(rawResetUrl);
+
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ code: 'unauthorized', message: `Invalid API key ${testApiKey}` }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        })) as typeof fetch;
+
+      await expect(
+        sendPasswordResetEmail(
+          {
+            to: 'mahasiswa@example.ac.id',
+            fullName: 'Budi Santoso',
+            resetUrl: rawResetUrl,
+            expiresInMinutes: 30,
+          },
+          {
+            NODE_ENV: 'production',
+            BREVO_API_KEY: testApiKey,
+            BREVO_SENDER_EMAIL: 'no-reply@example.ac.id',
+            BREVO_SENDER_NAME: 'SINTAKS',
+            PASSWORD_RESET_DEV_PREVIEW: false,
+          },
+        ),
+      ).rejects.toBeInstanceOf(MailDeliveryError);
+
+      expect(loggedErrors.some((line) => line.includes('brevo_email_api_rejected'))).toBe(true);
+      expect(loggedErrors.some((line) => line.includes('[REDACTED]'))).toBe(true);
+      for (const line of loggedErrors) {
+        expect(line).not.toContain(testApiKey);
+        expect(line).not.toContain('secret-unit-token-xyz');
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+      console.error = originalConsoleError;
+    }
+  });
 
   (enabled ? it : it.skip)(
     'generates SHA-256 hashed single-use tokens, verifies with POST even during active session, handles concurrent reset race, revokes sessions, and rejects reuse or expired tokens',
@@ -383,11 +487,11 @@ describe('Lupa Kata Sandi (backend token reset without Firebase)', () => {
   );
 
   (enabled ? it : it.skip)(
-    'invalidates created reset token and returns 503 EMAIL_DELIVERY_FAILED when SMTP delivery fails without leaking raw tokens in logs',
+    'invalidates created reset token and returns 503 EMAIL_DELIVERY_FAILED when Brevo email delivery fails without leaking raw tokens in logs',
     async () => {
       const unique = randomUUID();
       const userId = randomUUID();
-      const email = `reset-smtp-fail-${unique}@example.invalid`;
+      const email = `reset-brevo-fail-${unique}@example.invalid`;
       const passwordHash = await argon2Hash(`Pass-${unique}-123!`, passwordOptions);
       const bucketKeys = [
         deriveIpRateLimitKey('fp', '127.0.0.1'),
@@ -398,7 +502,7 @@ describe('Lupa Kata Sandi (backend token reset without Firebase)', () => {
       await db.insert(users).values({
         id: userId,
         email,
-        fullName: 'SMTP Fail User',
+        fullName: 'Brevo Fail User',
         role: 'MAHASISWA',
         status: 'ACTIVE',
         mustChangePassword: false,
@@ -412,7 +516,7 @@ describe('Lupa Kata Sandi (backend token reset without Firebase)', () => {
       };
 
       setPasswordResetMailHook(() => {
-        throw new MailDeliveryError('SMTP connection refused');
+        throw new MailDeliveryError('Brevo API rejected request');
       });
 
       const { server, base } = await startTestServer(
